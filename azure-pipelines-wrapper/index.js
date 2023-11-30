@@ -7,6 +7,7 @@ const issue_comment = require('./issue_comment');
 const check_run = require('./check_run');
 const eventhub = require('./eventhub');
 const conflict_detect = require('./conflict_detect.js');
+const auto_cherrypick = require('./auto_cherrypick.js');
 
 module.exports = (app) => {
   // Your code here
@@ -16,6 +17,7 @@ module.exports = (app) => {
   check_run.init(app);
   eventhub.init(app);
   conflict_detect.init(app);
+  auto_cherrypick.init(app);
 
   // For more information on building apps:
   // https://probot.github.io/docs/
