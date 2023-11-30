@@ -35,11 +35,15 @@ function init(app) {
         param.push(`PR_URL=${payload.pull_request.html_url}`)
         param.push(`PR_OWNER=${payload.pull_request.user.login}`)
         param.push(`PR_BASE_BRANCH=${payload.pull_request.base.ref}`)
+        param.push(`PR_PATCH_URL=${payload.pull_request.patch_url}`)
         var labels = Array()
         for (const label of payload.pull_request.labels) {
             labels.push(label.name)
         }
-        param.push(`PR_TAGS=${labels.join(',')}`)
+        param.push(`PR_LABELS="${labels.join(',')}"`)
+        if (payload.action == 'labeled') {
+            param.push(`ACTION_LABEL="${payload.label.name}"`)
+        }
 
         app.log.info(["[ AUTO CHERRY PICK ]"].concat(param).join(" "))
 

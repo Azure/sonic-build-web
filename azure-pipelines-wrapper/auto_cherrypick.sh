@@ -4,14 +4,13 @@ mkdir -p workspace
 cd workspace
 
 tmpfile=$(mktemp)
-for i in $@;do
+for i in "$@";do
     echo $i >> $tmpfile
 done
 . $tmpfile
 
 mkdir $REPO -p
 cd $REPO
-mv $tmpfile .bashenv
 
 tmp=$(mktemp -p ./ -d)
 
@@ -20,6 +19,7 @@ apt-get install git -y
 git config --global --add safe.directory '*'
 
 cd $tmp
+mv $tmpfile .bashenv
 
 echo "tmp dir: $tmp"
 
