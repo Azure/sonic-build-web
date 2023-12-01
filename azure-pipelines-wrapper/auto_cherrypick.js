@@ -1,5 +1,6 @@
 const spawnSync = require('child_process').spawnSync;
 const akv = require('./keyvault');
+const repos = ["sonic-net/sonic-utilities"]
 
 function init(app) {
     app.log.info("[ AUTO CHERRY PICK ] Init auto cherry pick");
@@ -11,7 +12,7 @@ function init(app) {
         var merged = payload.pull_request.merged
         let org = full_name.split('/')[0]
         let repo = full_name.split('/')[1]
-        if (full_name != "sonic-net/sonic-utilities") {
+        if (!repos.includes(full_name)) {
             app.log.info("[ AUTO CHERRY PICK ] repo not match!")
             return
         }
@@ -36,6 +37,8 @@ function init(app) {
         param.push(`PR_OWNER=${payload.pull_request.user.login}`)
         param.push(`PR_BASE_BRANCH=${payload.pull_request.base.ref}`)
         param.push(`PR_PATCH_URL=${payload.pull_request.patch_url}`)
+        param.push(`PR_COMMIT_SHA=${payload.pull_request.merge_commit_sha}`)
+        param.push(`PR_MERGED=${merged}`)
         var labels = Array()
         for (const label of payload.pull_request.labels) {
             labels.push(label.name)
