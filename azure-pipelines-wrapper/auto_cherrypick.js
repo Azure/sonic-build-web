@@ -1,6 +1,6 @@
 const spawnSync = require('child_process').spawnSync;
 const akv = require('./keyvault');
-const repos = ["sonic-net/sonic-utilities"]
+const repos = ["sonic-net/sonic-utilities", "sonic-net/sonic-swss", "sonic-net/sonic-sairedis", "sonic-net/sonic-swss-common"]
 
 function init(app) {
     app.log.info("[ AUTO CHERRY PICK ] Init auto cherry pick");
