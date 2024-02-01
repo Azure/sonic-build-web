@@ -14,18 +14,20 @@ cd $REPO
 
 tmp=$(mktemp -p ./ -d)
 
-apt-get update
-apt-get install git -y
+apt-get update &>$tmp/output.log
+apt-get install git -y &>$tmp/output.log
 git config --global --add safe.directory '*'
 
 cd $tmp
 mv $tmpfile .bashenv
 
-echo "tmp dir: $tmp"
+echo "$tmp"
 
 curl "$SCRIPT_URL" -o auto_cherrypick.sh -L
 
-./auto_cherrypick.sh 2>error.log | tee log.log
+./auto_cherrypick.sh 2>error.log 1>log.log
+
 rc=${PIPESTATUS[0]}
-[[ "$rc" != 0 ]] && echo "Exit Code: $rc" >> error.log
+echo "Exit Code: $rc" >> error.log
+sync error.log log.log
 exit $rc
