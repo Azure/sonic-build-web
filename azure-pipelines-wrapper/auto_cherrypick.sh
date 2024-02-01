@@ -14,8 +14,8 @@ cd $REPO
 
 tmp=$(mktemp -p ./ -d)
 
-apt-get update &>$tmp/output.log
-apt-get install git -y &>$tmp/output.log
+apt-get update &> $tmp/output.log
+apt-get install git -y &>> $tmp/output.log
 git config --global --add safe.directory '*'
 
 cd $tmp
