@@ -11,12 +11,11 @@ fi
 mkdir $REPO -p
 cd $REPO
 tmp=$(mktemp -p ./ -d)
-
-apt-get update
-apt-get install git -y
-git config --global --add safe.directory '*'
-
 cd $tmp
+
+apt-get update &>> output.log
+apt-get install git -y &>> output.log
+git config --global --add safe.directory '*' &>> output.log
 
 echo "tmp dir: $tmp"
 

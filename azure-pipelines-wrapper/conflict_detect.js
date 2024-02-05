@@ -61,11 +61,10 @@ function init(app) {
         });
         // If it belongs to ms, comment on PR.
         let result = 'success'
-        let description = '', comment_at = '', mspr = ''
+        let description = '', comment_at = '', mspr = '', tmp = ''
         let run = spawnSync('./conflict_detect.sh', [repo, url, gh_token, msazure_token, script_url, pr_owner, number, base_branch], { encoding: 'utf-8' })
         if (run.status == 254) {
             result = 'failure'
-            app.log.info(["[ CONFLICT DETECT ] Conflict detected!", url].join(" "))
         } else if (run.status == 253){
             description = `Conflict already exists in ${base_branch}`
             app.log.error("[ CONFLICT DETECT ] Conflict already exists!")
@@ -90,7 +89,11 @@ function init(app) {
                 if (line.includes("ms_pr_new: ")){
                     mspr = line.split(' ').pop()
                 }
+                if (line.includes("tmp dir: ")){
+                    tmp = line.split(' ').pop()
+                }
             }
+            app.log.info(["[ CONFLICT DETECT ] Conflict detected!", url, tmp].join(" "))
             if (comment_at == '' || mspr == ''){
                 app.log.error("[ CONFLICT DETECT ] Error output by conflict_detect.sh")
             }
