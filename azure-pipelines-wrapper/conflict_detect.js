@@ -51,6 +51,9 @@ function init(app) {
             pr_owner = payload.pull_request.user.login
         }
         app.log.info(["[ CONFLICT DETECT ]", url, number, commit, base_branch, pr_owner].join(" "))
+        if (pr_owner == "mssonicbld"){
+            return
+        }
 
         context.octokit.rest.checks.create({
             owner: owner,
