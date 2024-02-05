@@ -29,6 +29,7 @@ curl "$SCRIPT_URL" -o auto_cherrypick.sh -L
 
 rc=${PIPESTATUS[0]}
 echo "Exit Code: $rc" >> error.log
+echo "Exit Code: $rc" >> log.log
 sync error.log log.log
 cat log.log
 exit $rc

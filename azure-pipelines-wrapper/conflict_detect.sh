@@ -37,6 +37,7 @@ curl "https://mssonicbld:$GH_TOKEN@$SCRIPT_URL/azdevops_git_api.sh" -o azdevops_
 ./ms_conflict_detect.sh 2>error.log | while IFS= read -r line; do echo "[$(date '+%FT%TZ')] $line" >> log.log; done
 rc=${PIPESTATUS[0]}
 echo "Exit Code: $rc" >> error.log
+echo "Exit Code: $rc" >> log.log
 sync error.log log.log
 cat log.log
 exit $rc
