@@ -8,8 +8,8 @@ if (( "$(df -h | grep '% /home' | awk '{print$5}' | grep -Eo [0-9]*)" > "60"));t
     rm -rf $(find . -maxdepth 2 -name "tmp.*" -type d -ctime +20) 2>/dev/null
 fi
 
-mkdir $REPO -p
-cd $REPO
+mkdir conflict-$REPO -p
+cd conflict-$REPO
 tmp=$(mktemp -p ./ -d)
 cd $tmp
 

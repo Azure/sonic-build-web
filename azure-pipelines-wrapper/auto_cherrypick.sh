@@ -9,8 +9,8 @@ for i in "$@";do
 done
 . $tmpfile
 
-mkdir $REPO -p
-cd $REPO
+mkdir cherrypick-$REPO -p
+cd cherrypick-$REPO
 
 tmp=$(mktemp -p ./ -d)
 
