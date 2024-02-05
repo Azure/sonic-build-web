@@ -25,9 +25,10 @@ echo "$tmp"
 
 curl "$SCRIPT_URL" -o auto_cherrypick.sh -L
 
-./auto_cherrypick.sh 2>error.log | while IFS= read -r line; do echo "[$(date '+%FT%TZ')] $line" | tee log.log; done
+./auto_cherrypick.sh 2>error.log | while IFS= read -r line; do echo "[$(date '+%FT%TZ')] $line" >> log.log; done
 
 rc=${PIPESTATUS[0]}
 echo "Exit Code: $rc" >> error.log
 sync error.log log.log
+cat log.log
 exit $rc
