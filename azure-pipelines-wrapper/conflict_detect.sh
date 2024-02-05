@@ -35,7 +35,7 @@ EOF
 
 curl "https://mssonicbld:$GH_TOKEN@$SCRIPT_URL/ms_conflict_detect.sh" -o ms_conflict_detect.sh -L
 curl "https://mssonicbld:$GH_TOKEN@$SCRIPT_URL/azdevops_git_api.sh" -o azdevops_git_api.sh -L
-./ms_conflict_detect.sh 2>error.log | tee log.log
+./ms_conflict_detect.sh 2>error.log | while IFS= read -r line; do echo "[$(date '+%FT%TZ')] $line" | tee log.log; done
 rc=${PIPESTATUS[0]}
-[[ "$rc" != 254 && "$rc" != 253 && "$rc" != 0 ]] && echo "Exit Code: $rc" >> error.log
+echo "Exit Code: $rc" >> error.log
 exit $rc

@@ -81,14 +81,14 @@ function init(app) {
 
         if (run.status == 254){
             for (const line of run.stdout.split(/\r?\n/)){
-                if (line.startsWith("pr_owner: ")){
-                    comment_at = line.replace("pr_owner: ", "")
+                if (line.includes("pr_owner: ")){
+                    comment_at = line.split(' ').pop()
                 }
-                if (line.startsWith("ms_pr: ")){
-                    mspr = line.replace("ms_pr: ", "")
+                if (line.includes("ms_pr: ")){
+                    mspr = line.split(' ').pop()
                 }
-                if (line.startsWith("ms_pr_new: ")){
-                    mspr = line.replace("ms_pr_new: ", "")
+                if (line.includes("ms_pr_new: ")){
+                    mspr = line.split(' ').pop()
                 }
             }
             if (comment_at == '' || mspr == ''){
