@@ -7,11 +7,11 @@ const keyVaultName = process.env["KEY_VAULT_NAME"];
 const KVUri = "https://" + keyVaultName + ".vault.azure.net";
 const credential = new DefaultAzureCredential();
 const client = new SecretClient(KVUri, credential);
-const SecretCache = new NodeCache({ stdTTL: 0, checkperiod: 600 });
+const SecretCache = new NodeCache({ stdTTL: 300, checkperiod: 60 });
 
 SecretCache.on( "expired", async function( key, value ){
     var newValue = await client.getSecret(key);
-    SecretCache.set(key, newValue);
+    SecretCache.set(key, newValue.value);
 });
 
 async function getSecretFromCache(secretName){

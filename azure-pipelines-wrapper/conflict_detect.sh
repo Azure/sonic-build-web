@@ -32,9 +32,9 @@ EOF
 
 . .bashenv
 
-curl "https://mssonicbld:$GH_TOKEN@$SCRIPT_URL/ms_conflict_detect.sh" -o ms_conflict_detect.sh -L
-curl "https://mssonicbld:$GH_TOKEN@$SCRIPT_URL/azdevops_git_api.sh" -o azdevops_git_api.sh -L
-./ms_conflict_detect.sh 2>error.log | while IFS= read -r line; do echo "[$(date '+%FT%TZ')] $line" >> log.log; done
+curl "https://mssonicbld:$GH_TOKEN@$SCRIPT_URL/ms_conflict_detect.sh" -o ms_conflict_detect.sh -L &>> output.log
+curl "https://mssonicbld:$GH_TOKEN@$SCRIPT_URL/azdevops_git_api.sh" -o azdevops_git_api.sh -L &>> output.log
+./ms_conflict_detect.sh 2>&1 > log.log | while IFS= read -r line; do echo "[$(date '+%FT%TZ')] $line" >> error.log; done
 rc=${PIPESTATUS[0]}
 echo "Exit Code: $rc" >> error.log
 echo "Exit Code: $rc" >> log.log
