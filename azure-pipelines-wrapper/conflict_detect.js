@@ -3,18 +3,19 @@ const { Octokit } = require('@octokit/rest');
 const akv = require('./keyvault');
 const InProgress = 'in_progress'
 const MsConflict = 'ms_conflict'
+const { v4: uuidv4 } = require('uuid');
 
 function init(app) {
     app.log.info("[ CONFLICT DETECT ] Init conflict detect");
 
     app.on( ["pull_request.opened", "pull_request.synchronize", "pull_request.reopened", "issue_comment.created"] , async (context) => {
         var payload = context.payload;
-
+        const uuid = uuidv4()
         let full_name = payload.repository.full_name
         let owner = full_name.split('/')[0]
         let repo = full_name.split('/')[1]
         if ("sonic-net/sonic-buildimage" != full_name) {
-            app.log.info("[ CONFLICT DETECT ] repo not match!")
+            app.log.info(`[ CONFLICT DETECT ] [${uuid}] repo not match!`)
             return
         }
 
@@ -50,7 +51,7 @@ function init(app) {
             base_branch = payload.pull_request.base.ref
             pr_owner = payload.pull_request.user.login
         }
-        app.log.info(["[ CONFLICT DETECT ]", url, number, commit, base_branch, pr_owner].join(" "))
+        app.log.info([`[ CONFLICT DETECT ] [${uuid}]`, url, number, commit, base_branch, pr_owner].join(" "))
         if (pr_owner == "mssonicbld"){
             return
         }
@@ -70,42 +71,38 @@ function init(app) {
             result = 'failure'
         } else if (run.status == 253){
             description = `Conflict already exists in ${base_branch}`
-            app.log.error("[ CONFLICT DETECT ] Conflict already exists!")
+            app.log.error(`[ CONFLICT DETECT ] [${uuid}] Conflict already exists!`)
         } else if (run.status != 0){
-            mssonicbld_ghclient.rest.issue.create({
-                owner: 'azure',
-                repo: 'sonic-build-web',
-                title: `Unexpected err: ${url}`,
-            });
+            app.log.info(`[ CONFLICT DETECT ] [${uuid}] Exit Code: ${run.status}`)
         } else {
-            app.log.info("[ CONFLICT DETECT ] No Conflict or Resolved!")
+            app.log.info(`[ CONFLICT DETECT ] [${uuid}] No Conflict or Resolved!`)
         }
-
+        for (const line of run.stdout.split(/\r?\n/)){
+            if (line.includes("pr_owner: ")){
+                comment_at = line.split(' ').pop()
+            }
+            if (line.includes("ms_pr: ")){
+                mspr = line.split(' ').pop()
+            }
+            if (line.includes("ms_pr_new: ")){
+                mspr = line.split(' ').pop()
+            }
+            if (line.includes("tmp dir: ")){
+                tmp = line.split(' ').pop()
+            }
+        }
+        app.log.info(`[ CONFLICT DETECT ] [${uuid}] ${mspr}, ${tmp}`)
         if (run.status == 254){
-            for (const line of run.stdout.split(/\r?\n/)){
-                if (line.includes("pr_owner: ")){
-                    comment_at = line.split(' ').pop()
-                }
-                if (line.includes("ms_pr: ")){
-                    mspr = line.split(' ').pop()
-                }
-                if (line.includes("ms_pr_new: ")){
-                    mspr = line.split(' ').pop()
-                }
-                if (line.includes("tmp dir: ")){
-                    tmp = line.split(' ').pop()
-                }
-            }
-            app.log.info(["[ CONFLICT DETECT ] Conflict detected!", url, tmp].join(" "))
+            app.log.info([`[ CONFLICT DETECT ] [${uuid}] Conflict detected!`, url].join(" "))
             if (comment_at == '' || mspr == ''){
-                app.log.error("[ CONFLICT DETECT ] Error output by conflict_detect.sh")
+                app.log.error(`[ CONFLICT DETECT ] [${uuid}] Error output by conflict_detect.sh`)
             }
-            description = `@${comment_at} PR: ${url} is conflict with MS internal repo<br>Please complete the following PR by pushing fix commit to sonicbld/conflict_prefix/${number}-fix<br>${mspr}<br>Then comment "/azpw ms_conflict" to rerun PR checker.`
+            description = `@${comment_at} PR: ${url} is conflict with MS internal repo<br>Please push fix commit to sonicbld/precheck/head/${number} and approve<br>${mspr}<br>After ms PR is merged, comment "/azpw ms_conflict" to rerun PR checker.`
             let mssonicbld_ghclient = new Octokit({
                 auth: gh_token,
             });
             let now = new Date()
-            now.setDate(now.getDate() -1)
+            now.setDate(now.getDate() -3)
             let comments = await mssonicbld_ghclient.rest.issues.listComments({
                 owner: owner,
                 repo: repo,
@@ -124,12 +121,13 @@ function init(app) {
             }
 
             if (need_comment) {
-                mssonicbld_ghclient.rest.issues.createComment({
+                let re = await mssonicbld_ghclient.rest.issues.createComment({
                     owner: owner,
                     repo: repo,
                     issue_number: number,
                     body: description,
                 });
+                app.log.info([`[ CONFLICT DETECT ] [${uuid}]`, re.body].join(" "))
             }
         }
 
@@ -145,6 +143,7 @@ function init(app) {
                 summary: description,
             },
         });
+        app.log.info([`[ CONFLICT DETECT ] [${uuid}]`,result , check.body].join(" "))
         if (check.status != 201 && check.status != 202 && check.status != 200) { app.log.error(check) }
     });
 };
