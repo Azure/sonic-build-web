@@ -4,6 +4,7 @@ REPO=$1
 mkdir -p workspace
 cd workspace
 rm -rf $(find . -maxdepth 2 -name "tmp.*" -type d -ctime +30)
+
 if (( "$(df -h | grep '% /home' | awk '{print$5}' | grep -Eo [0-9]*)" > "60"));then
     rm -rf $(find . -maxdepth 2 -name "tmp.*" -type d -ctime +20) 2>/dev/null
 fi
@@ -14,7 +15,7 @@ tmp=$(mktemp -p ./ -d)
 cd $tmp
 
 apt-get update &>> output.log
-apt-get install git -y &>> output.log
+apt-get install git jq -y &>> output.log
 git config --global --add safe.directory '*' &>> output.log
 
 echo "tmp dir: $tmp"
