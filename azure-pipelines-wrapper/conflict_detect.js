@@ -56,17 +56,29 @@ function init(app) {
             return
         }
 
-        context.octokit.rest.checks.create({
+        var check = await context.octokit.rest.checks.create({
             owner: owner,
             repo: repo,
             head_sha: commit,
             name: MsConflict,
             status: InProgress,
         });
+        app.log.info(`[ CONFLICT DETECT ] [${uuid}] ${check.status} ${check.body}}`)
+
+        var param = Array()
+        param.push(`REPO=${repo}`)
+        param.push(`GH_TOKEN=${gh_token}`)
+        param.push(`MSAZURE_TOKEN=${msazure_token}`)
+        param.push(`SCRIPT_URL=${script_url}`)
+        param.push(`PR_NUMBER=${number}`)
+        param.push(`PR_URL=${url}`)
+        param.push(`PR_OWNER=${pr_owner}`)
+        param.push(`PR_BASE_BRANCH=${base_branch}`)
+
         // If it belongs to ms, comment on PR.
         let result = 'success'
         let description = '', comment_at = '', mspr = '', tmp = ''
-        let run = spawnSync('./conflict_detect.sh', [repo, url, gh_token, msazure_token, script_url, pr_owner, number, base_branch], { encoding: 'utf-8' })
+        let run = spawnSync('./conflict_detect.sh', param, { encoding: 'utf-8' })
         if (run.status == 254) {
             result = 'failure'
         } else if (run.status == 253){
@@ -127,7 +139,7 @@ function init(app) {
                     issue_number: number,
                     body: description,
                 });
-                app.log.info([`[ CONFLICT DETECT ] [${uuid}]`, re.body].join(" "))
+                app.log.info([`[ CONFLICT DETECT ] [${uuid}]`, re.status, re.body].join(" "))
             }
         }
 
@@ -143,7 +155,7 @@ function init(app) {
                 summary: description,
             },
         });
-        app.log.info([`[ CONFLICT DETECT ] [${uuid}]`,result , check.body].join(" "))
+        app.log.info([`[ CONFLICT DETECT ] [${uuid}]`,result , check.status, check.body].join(" "))
         if (check.status != 201 && check.status != 202 && check.status != 200) { app.log.error(check) }
     });
 };
