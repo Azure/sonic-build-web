@@ -40,7 +40,7 @@ async function getAppWebhookSecret()
 }
 async function getAzDevOpsToken()
 {
-    return await getSecretFromCache("AZDEVOPS_TOKEN");
+    return await getSecretFromCache("MSSONIC_TOKEN");
 }
 async function getGithubToken()
 {
