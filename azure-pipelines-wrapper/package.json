@@ -19,12 +19,12 @@
   },
   "dependencies": {
     "@azure/event-hubs": "^5.8.0",
-    "@azure/identity": "^1.5.2",
+    "@azure/identity": "^4.2.0",
     "@azure/keyvault-secrets": "^4.3.0",
     "@octokit/rest": "^18.10.0",
     "azure-devops-node-api": "^11.0.1",
     "node-cache": "^5.1.2",
-    "probot": "^11.0.1"
+    "probot": "^13.2.2"
   },
   "devDependencies": {
     "jest": "^26.6.3",

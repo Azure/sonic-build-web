@@ -1,4 +1,4 @@
 {
-    "appService.defaultWebAppToDeploy": "",
+    "appService.defaultWebAppToDeploy": "/subscriptions/90318812-d77d-426d-90a3-44997faf17f4/resourceGroups/azure-pipelines-wrapper/providers/Microsoft.Web/sites/azure-pipelines-wrapper-linux",
     "appService.deploySubpath": "."
 }
