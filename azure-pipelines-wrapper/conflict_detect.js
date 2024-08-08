@@ -82,7 +82,6 @@ function init(app) {
                 }
             } else if (comment_body.startsWith(`/azpw ${MsChecker}`)) {
                 check_suite = MsChecker
-                if (pr_owner != 'liushilongbuaa'){ return }; //TODO remove test line.
             } else {
                 app.log.info(`[ CONFLICT DETECT ] [${uuid}] comment: ${comment_body}, exit!`)
                 return
@@ -154,26 +153,22 @@ function init(app) {
                 description = `@${comment_at} Github Branch not ready<br>Please wait a few minutes to run again!<br>'/azpw ${MsConflict}'`
             } else if (run.status != 0){
                 app.log.info([`[ CONFLICT DETECT ] [${uuid}] Unknown error liushilongbuaa need to check!`, url].join(" "))
-                description = `@liushilongbuaa Please help check!`
+                description = `@liushilongbuaa Please help check!<br>${mspr}<br>${tmp}`
             } else {
                 app.log.info([`[ CONFLICT DETECT ] [${uuid}] Exit: 0`, url].join(" "))
-                description = SUCCESS
+                description = `${SUCCESS}<br>${mspr}`
             }
             check_create(app, context, uuid, owner, repo, commit, MsConflict, ms_conflict_result, COMPLETED, "MS conflict detect", description)
         }
         if ( ['ALL',MsChecker].includes(check_suite) ) {
             description = `Please check result in ${mspr}`
-            if (pr_owner == 'liushilongbuaa') {
-                if (ms_checker_result == InProgress){
-                    check_create(app, context, uuid, owner, repo, commit, MsChecker, null, InProgress, "MS PR validation", description)
-                } else {
-                    check_create(app, context, uuid, owner, repo, commit, MsChecker, ms_checker_result, COMPLETED, "MS PR validation", description)
-                }
-            } //TODO remove test line.
+            if (ms_checker_result == InProgress){
+                check_create(app, context, uuid, owner, repo, commit, MsChecker, null, InProgress, "MS PR validation", description)
+            } else {
+                check_create(app, context, uuid, owner, repo, commit, MsChecker, ms_checker_result, COMPLETED, "MS PR validation", description)
+            }
         }
-        if ( ! [0, 254, 253, 252].includes(run.status) ){
-            app.log.error(`[ CONFLICT DETECT ] [${uuid}] Exit Code: ${run.status}`)
-        }
+        app.log.error(`[ CONFLICT DETECT ] [${uuid}] Exit Code: ${run.status}`)
     });
 };
 

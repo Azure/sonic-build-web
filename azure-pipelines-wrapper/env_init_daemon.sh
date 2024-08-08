@@ -1,5 +1,11 @@
 #!/bin/bash -ex
 
+if (( $(stat --format %s /home/env_init_daemon.stderr)/1000/1000/1000 > 2 )); then
+    cd /home
+    mv env_init_daemon.stderr env_init_daemon.stderr.back
+    split -l 1000000 -d env_init_daemon.stderr.back env_init_daemon.stderr.back
+    cd -
+fi
 uuid=$1
 echo "$(date '+%FT%TZ') daemon script start!"
 cd site/wwwroot/workspace
