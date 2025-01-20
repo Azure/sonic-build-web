@@ -1,7 +1,6 @@
-const spawnSync = require('child_process').spawnSync;
-const execFile = require('child_process').execFile;
 const akv = require('./keyvault.js');
 const { App, createNodeMiddleware } = require("@octokit/app");
+const { execFileSync, execFile } = require('child_process');
 const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
 const MsChecker = 'ms_checker'
@@ -10,15 +9,12 @@ const COMPLETED = 'completed'
 const PRPrefix = 'https://dev.azure.com/msazure/One/_git/Networking-acs-buildimage/pullrequest/'
 
 async function init(app){
-    while ( true ){
-        let run = spawnSync('./env_init.sh', { encoding: 'utf-8' })
-        if (run.status == 0){
-            app.log.info(`[ INIT ] succeed!!!`)
-            return
-        }
-        app.log.info(`[ INIT ] ${run.status} ${run.output}`)
-        const delay = ms => new Promise(resolve => setTimeout(resolve, ms))
-        await delay(3000)
+    output = ''
+    try{
+        output = execFileSync('bash', ['-c', 'site/wwwroot/env_init.sh 2>&1 | while IFS= read -r line; do echo [$(date +%FT%TZ)] $line >> env_init.stderr; done;' ], { encoding: 'utf-8' })
+        app.log.info('[ INIT ] Succeeded!!!')
+    } catch(e){
+        app.log.error(`[ INIT ] Failed!!! ${output}`)
     }
 }
 

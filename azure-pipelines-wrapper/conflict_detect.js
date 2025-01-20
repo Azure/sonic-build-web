@@ -12,8 +12,8 @@ const SUCCESS = 'success'
 
 async function check_create(app, context, uuid, owner, repo, commit, check_name, result, status, output_title, output_summary){
     if (result == '') {
-        app.log.info(`[ CONFLICT DETECT ] [${uuid}] check_create: result=BLANK`)
-        return
+        app.log.error(`[ CONFLICT DETECT ] [${uuid}] check_create: result=BLANK`)
+        result = SUCCESS
     }
     param={
         owner: owner,
