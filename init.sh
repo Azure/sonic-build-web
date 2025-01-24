@@ -157,3 +157,24 @@ chmod 440 /etc/sudoers.d/100-$tmpuser
 
 sudo pip3 install docker==6.1.0 requests==2.31.0
 sudo apt-get install libyang0.16 libboost1.71-dev libboost-dev
+
+# create two partition on the 1T data disk
+# first partition for azure pipeline agent
+# second partition for data
+# find data disk, assume it is 1T
+datadisk=$(lsblk -d  | grep -E '[[:space:]]1T[[:space:]]' | awk '{print $1}')
+sgdisk -n 0:0:500G -t 0:8300 -c 0:agent /dev/$datadisk
+sgdisk -n 0:0:0 -t 0:8300 -c 0:data /dev/$datadisk
+mkfs.ext4 /dev/${datadisk}1
+mkfs.ext4 /dev/${datadisk}2
+
+mkdir /agent
+mount /dev/${datadisk}1 /agent
+mkdir /data
+mount /dev/${datadisk}2 /data
+
+# clone sonic-mgmt repo
+pushd /data
+git clone https://github.com/Azure/sonic-mgmt
+chown -R $tmpuser.$tmpuser /data/sonic-mgmt
+popd
