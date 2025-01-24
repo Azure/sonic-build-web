@@ -155,3 +155,5 @@ usermod -a -G sudo $tmpuser
 echo "$tmpuser ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/100-$tmpuser
 chmod 440 /etc/sudoers.d/100-$tmpuser
 
+sudo pip3 install docker==6.1.0 requests==2.31.0
+sudo apt-get install libyang0.16 libboost1.71-dev libboost-dev
