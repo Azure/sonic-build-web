@@ -3,8 +3,9 @@
 # provision vmss virtual machine
 #
 
-set -x
+set -ex
 
+sudo sed -i 's/1/0/' /etc/apt/apt.conf.d/20auto-upgrades || true
 source /etc/os-release
 
 function build_and_install_team()
