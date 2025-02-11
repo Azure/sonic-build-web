@@ -3,7 +3,7 @@
 # provision vmss virtual machine
 #
 
-set -ex
+set -x
 
 sudo sed -i 's/1/0/' /etc/apt/apt.conf.d/20auto-upgrades || true
 source /etc/os-release
