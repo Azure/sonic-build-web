@@ -64,64 +64,70 @@ function build_and_install_team()
     rm -rf $WORKDIR
 }
 
-# install docker
-apt-get update
-apt-get upgrade -y
-apt-get install -y \
-    apt-transport-https \
-    ca-certificates \
-    curl \
-    gnupg-agent \
-    software-properties-common
+function install_packages(){
+    # install docker
+    apt-get update
+    apt-get install -y \
+        apt-transport-https \
+        ca-certificates \
+        curl \
+        gnupg-agent \
+        software-properties-common || return
 
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg | apt-key add -
+    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | apt-key add -
 
-add-apt-repository \
-   "deb [arch=amd64] https://download.docker.com/linux/ubuntu \
-   $(lsb_release -cs) \
-   stable"
+    add-apt-repository \
+       "deb [arch=amd64] https://download.docker.com/linux/ubuntu \
+       $(lsb_release -cs) \
+       stable"
 
-apt-get update
-apt-get install -y docker-ce docker-ce-cli containerd.io
+    apt-get update
+    apt-get install -y docker-ce docker-ce-cli containerd.io || return
 
-# install qemu for multi-arch docker
-#apt-get install -y qemu binfmt-support qemu-user-static
+    # install qemu for multi-arch docker
+    #apt-get install -y qemu binfmt-support qemu-user-static
 
-# install utilities for image build
-apt-get install -y make
-apt-get install -y python3-pip
-pip3 install --force-reinstall --upgrade jinja2==2.10
-pip3 install j2cli==0.3.10 markupsafe==2.0.1
-# for team services agent
-apt-get install -y python-is-python2
-# install python2 libvirt 5.10.0
-apt-get install -y python2-dev python-pkg-resources libvirt-dev pkg-config
-curl https://bootstrap.pypa.io/pip/2.7/get-pip.py | python2
-pip2 install libvirt-python==5.10.0
-pip2 install docker==4.4.1
+    # install utilities for image build
+    apt-get install -y make || return
+    apt-get install -y python3-pip || return
+    pip3 install --force-reinstall --upgrade jinja2==2.10 || return
+    pip3 install j2cli==0.3.10 markupsafe==2.0.1 || return
+    # for team services agent
+    apt-get install -y python-is-python2
+    # install python2 libvirt 5.10.0
+    apt-get install -y python2-dev python-pkg-resources libvirt-dev pkg-config || return
+    curl https://bootstrap.pypa.io/pip/2.7/get-pip.py | python2
+    pip2 install libvirt-python==5.10.0
+    pip2 install docker==4.4.1
 
-# install packages for vs test
-pip3 install pytest==4.6.2 attrs==19.1.0 exabgp==4.0.10 distro==1.5.0 docker==4.4.1 redis==3.3.4
-apt-get install -y libhiredis0.14
+    # install packages for vs test
+    pip3 install pytest==4.6.2 attrs==19.1.0 exabgp==4.0.10 distro==1.5.0 docker==4.4.1 redis==3.3.4
+    apt-get install -y libhiredis0.14 || return
 
-# install packages for kvm test
-apt-get install -y libvirt-clients \
-    qemu \
-    openvswitch-switch \
-    net-tools \
-    bridge-utils \
-    util-linux \
-    iproute2 \
-    vlan \
-    apt-transport-https \
-    ca-certificates \
-    curl \
-    software-properties-common \
-    python3-libvirt \
-    libzmq3-dev \
-    libzmq5 \
-    libboost-serialization1.71.0 \
-    uuid-dev
+    # install packages for kvm test
+    apt-get install -y libvirt-clients \
+        qemu \
+        openvswitch-switch \
+        net-tools \
+        bridge-utils \
+        util-linux \
+        iproute2 \
+        vlan \
+        apt-transport-https \
+        ca-certificates \
+        curl \
+        software-properties-common \
+        python3-libvirt \
+        libzmq3-dev \
+        libzmq5 \
+        libboost-serialization1.71.0 \
+        uuid-dev || return
+}
+
+for ((i=0;i<10;i++));do
+    install_packages && break
+    sleep 30
+done
 
 # install br_netfilter kernel module
 modprobe br_netfilter
