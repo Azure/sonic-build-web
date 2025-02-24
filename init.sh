@@ -28,23 +28,23 @@ function build_and_install_team()
     SUBLEVEL=$(echo $KERNEL_MAINVERSION | cut -d. -f3)
 
     # Install the required debian packages to build the kernel modules
-    apt-get install -y build-essential linux-headers-${KERNEL_RELEASE} autoconf pkg-config fakeroot
-    apt-get install -y flex bison libssl-dev libelf-dev
-    apt-get install -y libnl-route-3-200 libnl-route-3-dev libnl-cli-3-200 libnl-cli-3-dev libnl-3-dev
+    sudo apt-get install -y build-essential linux-headers-${KERNEL_RELEASE} autoconf pkg-config fakeroot
+    sudo apt-get install -y flex bison libssl-dev libelf-dev
+    sudo apt-get install -y libnl-route-3-200 libnl-route-3-dev libnl-cli-3-200 libnl-cli-3-dev libnl-3-dev
 
     # Add the apt source mirrors and download the linux image source code
     cp /etc/apt/sources.list /etc/apt/sources.list.bk
     sed -i "s/^# deb-src/deb-src/g" /etc/apt/sources.list
-    apt-get update
-    apt-get source linux-image-unsigned-$(uname -r) > source.log
+    sudo apt-get update
+    sudo apt-get source linux-image-unsigned-$(uname -r) > source.log
 
     # Recover the original apt sources list
     cp /etc/apt/sources.list.bk /etc/apt/sources.list
-    apt-get update
+    sudo apt-get update
 
     # Build the Linux kernel module drivers/net/team
     cd $(find . -maxdepth 1 -type d | grep -v "^.$")
-    make  allmodconfig
+    make allmodconfig
     mv .config .config.bk
     cp /boot/config-$(uname -r) .config
     grep NET_TEAM .config.bk >> .config
@@ -66,8 +66,8 @@ function build_and_install_team()
 
 function install_packages(){
     # install docker
-    apt-get update
-    apt-get install -y \
+    sudo apt-get update
+    sudo apt-get install -y \
         apt-transport-https \
         ca-certificates \
         curl \
@@ -81,31 +81,31 @@ function install_packages(){
        $(lsb_release -cs) \
        stable"
 
-    apt-get update
-    apt-get install -y docker-ce docker-ce-cli containerd.io || return
+    sudo apt-get update
+    sudo apt-get install -y docker-ce docker-ce-cli containerd.io || return
 
     # install qemu for multi-arch docker
-    #apt-get install -y qemu binfmt-support qemu-user-static
+    #sudo apt-get install -y qemu binfmt-support qemu-user-static
 
     # install utilities for image build
-    apt-get install -y make || return
-    apt-get install -y python3-pip || return
+    sudo apt-get install -y make || return
+    sudo apt-get install -y python3-pip || return
     pip3 install --force-reinstall --upgrade jinja2==2.10 || return
     pip3 install j2cli==0.3.10 markupsafe==2.0.1 || return
     # for team services agent
-    apt-get install -y python-is-python2
+    sudo apt-get install -y python-is-python2
     # install python2 libvirt 5.10.0
-    apt-get install -y python2-dev python-pkg-resources libvirt-dev pkg-config || return
+    sudo apt-get install -y python2-dev python-pkg-resources libvirt-dev pkg-config || return
     curl https://bootstrap.pypa.io/pip/2.7/get-pip.py | python2
     pip2 install libvirt-python==5.10.0
     pip2 install docker==4.4.1
 
     # install packages for vs test
     pip3 install pytest==4.6.2 attrs==19.1.0 exabgp==4.0.10 distro==1.5.0 docker==4.4.1 redis==3.3.4
-    apt-get install -y libhiredis0.14 || return
+    sudo apt-get install -y libhiredis0.14 || return
 
     # install packages for kvm test
-    apt-get install -y libvirt-clients \
+    sudo apt-get install -y libvirt-clients \
         qemu \
         openvswitch-switch \
         net-tools \
