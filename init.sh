@@ -44,6 +44,7 @@ function build_and_install_team()
 
     # Build the Linux kernel module drivers/net/team
     cd $(find . -maxdepth 1 -type d | grep -v "^.$")
+    chmod +x scripts/*
     make allmodconfig
     mv .config .config.bk
     cp /boot/config-$(uname -r) .config
