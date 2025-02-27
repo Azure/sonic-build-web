@@ -10,9 +10,8 @@ source /etc/os-release
 
 function build_and_install_team()
 {
-    TEAM_DIR=$(echo /lib/modules/$(uname -r)/kernel/net/team)
-    if sudo modprobe team 2>/dev/null || [ -e "$TEAM_DIR/team.ko" ]; then
-        echo "The module team or $TEAM_DIR/team.ko exists."
+    if sudo modprobe team 2>/dev/null; then
+        echo "The module team exist."
         return
     fi
 
@@ -28,39 +27,57 @@ function build_and_install_team()
     SUBLEVEL=$(echo $KERNEL_MAINVERSION | cut -d. -f3)
 
     # Install the required debian packages to build the kernel modules
-    sudo apt-get install -y build-essential linux-headers-${KERNEL_RELEASE} autoconf pkg-config fakeroot
-    sudo apt-get install -y flex bison libssl-dev libelf-dev
-    sudo apt-get install -y libnl-route-3-200 libnl-route-3-dev libnl-cli-3-200 libnl-cli-3-dev libnl-3-dev
+    apt-get update
+    apt-get install -y build-essential linux-headers-${KERNEL_RELEASE} autoconf pkg-config fakeroot
+    apt-get install -y flex bison libssl-dev libelf-dev dwarves
+    apt-get install -y libnl-route-3-200 libnl-route-3-dev libnl-cli-3-200 libnl-cli-3-dev libnl-3-dev
+    # Install libs required by libswsscommon for build
+    apt-get install -y libzmq3-dev libzmq5 libboost-serialization-dev uuid-dev
 
     # Add the apt source mirrors and download the linux image source code
     cp /etc/apt/sources.list /etc/apt/sources.list.bk
     sed -i "s/^# deb-src/deb-src/g" /etc/apt/sources.list
-    sudo apt-get update
-    sudo apt-get source linux-image-unsigned-$(uname -r) > source.log
+    apt-get update
+    KERNEL_PACKAGE_SOURCE=$(apt-cache show linux-image-unsigned-${KERNEL_RELEASE} | grep ^Source: | cut -d':' -f 2)
+    KERNEL_PACKAGE_VERSION=$(apt-cache show linux-image-unsigned-${KERNEL_RELEASE} | grep ^Version: | cut -d':' -f 2)
+    SOURCE_PACKAGE_VERSION=$(apt-cache showsrc ${KERNEL_PACKAGE_SOURCE} | grep ^Version: | cut -d':' -f 2)
+    if [ ${KERNEL_PACKAGE_VERSION} != ${SOURCE_PACKAGE_VERSION} ]; then
+        echo "WARNING: the running kernel version (${KERNEL_PACKAGE_VERSION}) doesn't match the source package " \
+            "version (${SOURCE_PACKAGE_VERSION}) being downloaded. There's no guarantee the module being downloaded " \
+            "can be loaded into the kernel or function correctly. If possible, please update your kernel and reboot " \
+            "your system so that it's running the matching kernel version." >&2
+        echo "Continuing with the build anyways" >&2
+    fi
+    apt-get source linux-image-unsigned-${KERNEL_RELEASE} > source.log
 
     # Recover the original apt sources list
     cp /etc/apt/sources.list.bk /etc/apt/sources.list
-    sudo apt-get update
+    apt-get update
 
     # Build the Linux kernel module drivers/net/team
     cd $(find . -maxdepth 1 -type d | grep -v "^.$")
-    chmod +x scripts/*
-    make allmodconfig
+    if [ -e debian/debian.env ]; then
+        source debian/debian.env
+        if [ -n "${DEBIAN}" -a -e ${DEBIAN}/reconstruct ]; then
+            bash ${DEBIAN}/reconstruct
+        fi
+    fi
+    make  allmodconfig
     mv .config .config.bk
     cp /boot/config-$(uname -r) .config
     grep NET_TEAM .config.bk >> .config
-    echo CONFIG_NET_VENDOR_MICROSOFT=y >> .config
-    echo CONFIG_MICROSOFT_MANA=m >> .config
-    echo CONFIG_SYSTEM_REVOCATION_LIST=n >> .config
     make VERSION=$VERSION PATCHLEVEL=$PATCHLEVEL SUBLEVEL=$SUBLEVEL EXTRAVERSION=-${EXTRAVERSION} LOCALVERSION=-${LOCALVERSION} modules_prepare
-    make M=drivers/net/team
+    cp /usr/src/linux-headers-$(uname -r)/Module.symvers .
+    make -j$(nproc) M=drivers/net/team
 
     # Install the module
-    mkdir -p $TEAM_DIR
-    cp drivers/net/team/*.ko $TEAM_DIR/
-    modinfo $TEAM_DIR/team.ko
+    SONIC_MODULES_DIR=/lib/modules/$(uname -r)/updates/sonic
+    mkdir -p $SONIC_MODULES_DIR
+    cp drivers/net/team/*.ko $SONIC_MODULES_DIR/
     depmod
+    modinfo team
     modprobe team
+
     cd /tmp
     rm -rf $WORKDIR
 }
