@@ -27,17 +27,17 @@ function build_and_install_team()
     SUBLEVEL=$(echo $KERNEL_MAINVERSION | cut -d. -f3)
 
     # Install the required debian packages to build the kernel modules
-    apt-get update
-    apt-get install -y build-essential linux-headers-${KERNEL_RELEASE} autoconf pkg-config fakeroot
-    apt-get install -y flex bison libssl-dev libelf-dev dwarves
-    apt-get install -y libnl-route-3-200 libnl-route-3-dev libnl-cli-3-200 libnl-cli-3-dev libnl-3-dev
+    apt-get -o DPkg::Lock::Timeout=600 update
+    apt-get -o DPkg::Lock::Timeout=600 install -y build-essential linux-headers-${KERNEL_RELEASE} autoconf pkg-config fakeroot
+    apt-get -o DPkg::Lock::Timeout=600 install -y flex bison libssl-dev libelf-dev dwarves
+    apt-get -o DPkg::Lock::Timeout=600 install -y libnl-route-3-200 libnl-route-3-dev libnl-cli-3-200 libnl-cli-3-dev libnl-3-dev
     # Install libs required by libswsscommon for build
-    apt-get install -y libzmq3-dev libzmq5 libboost-serialization-dev uuid-dev
+    apt-get -o DPkg::Lock::Timeout=600 install -y libzmq3-dev libzmq5 libboost-serialization-dev uuid-dev
 
     # Add the apt source mirrors and download the linux image source code
     cp /etc/apt/sources.list /etc/apt/sources.list.bk
     sed -i "s/^# deb-src/deb-src/g" /etc/apt/sources.list
-    apt-get update
+    apt-get -o DPkg::Lock::Timeout=600 update
     KERNEL_PACKAGE_SOURCE=$(apt-cache show linux-image-unsigned-${KERNEL_RELEASE} | grep ^Source: | cut -d':' -f 2)
     KERNEL_PACKAGE_VERSION=$(apt-cache show linux-image-unsigned-${KERNEL_RELEASE} | grep ^Version: | cut -d':' -f 2)
     SOURCE_PACKAGE_VERSION=$(apt-cache showsrc ${KERNEL_PACKAGE_SOURCE} | grep ^Version: | cut -d':' -f 2)
@@ -48,11 +48,11 @@ function build_and_install_team()
             "your system so that it's running the matching kernel version." >&2
         echo "Continuing with the build anyways" >&2
     fi
-    apt-get source linux-image-unsigned-${KERNEL_RELEASE} > source.log
+    apt-get -o DPkg::Lock::Timeout=600 source linux-image-unsigned-${KERNEL_RELEASE} > source.log
 
     # Recover the original apt sources list
     cp /etc/apt/sources.list.bk /etc/apt/sources.list
-    apt-get update
+    apt-get -o DPkg::Lock::Timeout=600 update
 
     # Build the Linux kernel module drivers/net/team
     cd $(find . -maxdepth 1 -type d | grep -v "^.$")
@@ -84,8 +84,8 @@ function build_and_install_team()
 
 function install_packages(){
     # install docker
-    sudo apt-get update
-    sudo apt-get install -y \
+    sudo apt-get -o DPkg::Lock::Timeout=600 update
+    sudo apt-get -o DPkg::Lock::Timeout=600 install -y \
         apt-transport-https \
         ca-certificates \
         curl \
@@ -99,31 +99,31 @@ function install_packages(){
        $(lsb_release -cs) \
        stable"
 
-    sudo apt-get update
-    sudo apt-get install -y docker-ce docker-ce-cli containerd.io || return
+    sudo apt-get -o DPkg::Lock::Timeout=600 update
+    sudo apt-get -o DPkg::Lock::Timeout=600 install -y docker-ce docker-ce-cli containerd.io || return
 
     # install qemu for multi-arch docker
     #sudo apt-get install -y qemu binfmt-support qemu-user-static
 
     # install utilities for image build
-    sudo apt-get install -y make || return
-    sudo apt-get install -y python3-pip || return
+    sudo apt-get -o DPkg::Lock::Timeout=600 install -y make || return
+    sudo apt-get -o DPkg::Lock::Timeout=600 install -y python3-pip || return
     pip3 install --force-reinstall --upgrade jinja2==2.10 || return
     pip3 install j2cli==0.3.10 markupsafe==2.0.1 || return
     # for team services agent
-    sudo apt-get install -y python-is-python2
+    sudo apt-get -o DPkg::Lock::Timeout=600 install -y python-is-python2
     # install python2 libvirt 5.10.0
-    sudo apt-get install -y python2-dev python-pkg-resources libvirt-dev pkg-config || return
+    sudo apt-get -o DPkg::Lock::Timeout=600 install -y python2-dev python-pkg-resources libvirt-dev pkg-config || return
     curl https://bootstrap.pypa.io/pip/2.7/get-pip.py | python2
     pip2 install libvirt-python==5.10.0
     pip2 install docker==4.4.1
 
     # install packages for vs test
     pip3 install pytest==4.6.2 attrs==19.1.0 exabgp==4.0.10 distro==1.5.0 docker==4.4.1 redis==3.3.4
-    sudo apt-get install -y libhiredis0.14 || return
+    sudo apt-get -o DPkg::Lock::Timeout=600 install -y libhiredis0.14 || return
 
     # install packages for kvm test
-    sudo apt-get install -y libvirt-clients \
+    sudo apt-get -o DPkg::Lock::Timeout=600 install -y libvirt-clients \
         qemu \
         openvswitch-switch \
         net-tools \
@@ -181,7 +181,7 @@ echo "$tmpuser ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/100-$tmpuser
 chmod 440 /etc/sudoers.d/100-$tmpuser
 
 sudo pip3 install docker==6.1.0 requests==2.31.0
-sudo apt-get install libyang0.16 libboost1.71-dev libboost-dev
+sudo apt-get -o DPkg::Lock::Timeout=600 install libyang0.16 libboost1.71-dev libboost-dev
 
 # create two partition on the 1T data disk
 # first partition for azure pipeline agent
