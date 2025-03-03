@@ -96,7 +96,7 @@ useradd -M sonictmp
 
 # echo creating tmp AzDevOps account
 tmpuser=AzDevOps
-useradd -m $tmpuser
+useradd -m $tmpuser || echo "User already exists."
 usermod -a -G docker $tmpuser
 usermod -a -G adm $tmpuser
 usermod -a -G sudo $tmpuser
