@@ -8,10 +8,10 @@ set -ex
 sudo sed -i 's/1/0/' /etc/apt/apt.conf.d/20auto-upgrades || true
 source /etc/os-release
 
-function build_and_install_team()
+function build_and_install_kmodule()
 {
-    if sudo modprobe team 2>/dev/null; then
-        echo "The module team exist."
+    if sudo modprobe team 2>/dev/null && sudo modprobe vrf 2>/dev/null && sudo modprobe macsec 2>/dev/null; then
+        echo "The module team, vrf and macsec exist."
         return
     fi
 
@@ -27,17 +27,15 @@ function build_and_install_team()
     SUBLEVEL=$(echo $KERNEL_MAINVERSION | cut -d. -f3)
 
     # Install the required debian packages to build the kernel modules
-    apt-get -o DPkg::Lock::Timeout=600 update
-    apt-get -o DPkg::Lock::Timeout=600 install -y build-essential linux-headers-${KERNEL_RELEASE} autoconf pkg-config fakeroot
-    apt-get -o DPkg::Lock::Timeout=600 install -y flex bison libssl-dev libelf-dev dwarves
-    apt-get -o DPkg::Lock::Timeout=600 install -y libnl-route-3-200 libnl-route-3-dev libnl-cli-3-200 libnl-cli-3-dev libnl-3-dev
-    # Install libs required by libswsscommon for build
-    apt-get -o DPkg::Lock::Timeout=600 install -y libzmq3-dev libzmq5 libboost-serialization-dev uuid-dev
+    apt-get update
+    apt-get install -y build-essential linux-headers-${KERNEL_RELEASE} autoconf pkg-config fakeroot
+    apt-get install -y flex bison libssl-dev libelf-dev dwarves
+    apt-get install -y libnl-route-3-200 libnl-route-3-dev libnl-cli-3-200 libnl-cli-3-dev libnl-3-dev
 
     # Add the apt source mirrors and download the linux image source code
     cp /etc/apt/sources.list /etc/apt/sources.list.bk
     sed -i "s/^# deb-src/deb-src/g" /etc/apt/sources.list
-    apt-get -o DPkg::Lock::Timeout=600 update
+    apt-get update
     KERNEL_PACKAGE_SOURCE=$(apt-cache show linux-image-unsigned-${KERNEL_RELEASE} | grep ^Source: | cut -d':' -f 2)
     KERNEL_PACKAGE_VERSION=$(apt-cache show linux-image-unsigned-${KERNEL_RELEASE} | grep ^Version: | cut -d':' -f 2)
     SOURCE_PACKAGE_VERSION=$(apt-cache showsrc ${KERNEL_PACKAGE_SOURCE} | grep ^Version: | cut -d':' -f 2)
@@ -48,13 +46,13 @@ function build_and_install_team()
             "your system so that it's running the matching kernel version." >&2
         echo "Continuing with the build anyways" >&2
     fi
-    apt-get -o DPkg::Lock::Timeout=600 source linux-image-unsigned-${KERNEL_RELEASE} > source.log
+    apt-get source linux-image-unsigned-${KERNEL_RELEASE} > source.log
 
     # Recover the original apt sources list
     cp /etc/apt/sources.list.bk /etc/apt/sources.list
-    apt-get -o DPkg::Lock::Timeout=600 update
+    apt-get update
 
-    # Build the Linux kernel module drivers/net/team
+    # Build the Linux kernel module drivers/net/team and vrf
     cd $(find . -maxdepth 1 -type d | grep -v "^.$")
     if [ -e debian/debian.env ]; then
         source debian/debian.env
@@ -69,14 +67,20 @@ function build_and_install_team()
     make VERSION=$VERSION PATCHLEVEL=$PATCHLEVEL SUBLEVEL=$SUBLEVEL EXTRAVERSION=-${EXTRAVERSION} LOCALVERSION=-${LOCALVERSION} modules_prepare
     cp /usr/src/linux-headers-$(uname -r)/Module.symvers .
     make -j$(nproc) M=drivers/net/team
+    mv drivers/net/Makefile drivers/net/Makefile.bak
+    echo 'obj-$(CONFIG_NET_VRF) += vrf.o' > drivers/net/Makefile
+    echo 'obj-$(CONFIG_MACSEC) += macsec.o' >> drivers/net/Makefile
+    make -j$(nproc) M=drivers/net
 
     # Install the module
     SONIC_MODULES_DIR=/lib/modules/$(uname -r)/updates/sonic
     mkdir -p $SONIC_MODULES_DIR
-    cp drivers/net/team/*.ko $SONIC_MODULES_DIR/
+    cp drivers/net/team/*.ko drivers/net/vrf.ko drivers/net/macsec.ko $SONIC_MODULES_DIR/
     depmod
-    modinfo team
+    modinfo team vrf macsec
     modprobe team
+    modprobe vrf
+    modprobe macsec
 
     cd /tmp
     rm -rf $WORKDIR
@@ -150,8 +154,8 @@ done
 # install br_netfilter kernel module
 modprobe br_netfilter
 
-# build install team kernel module
-build_and_install_team
+# build install kernel module
+build_and_install_kmodule
 
 # set sysctl bridge parameters for testbed
 sysctl -w net.bridge.bridge-nf-call-arptables=0
