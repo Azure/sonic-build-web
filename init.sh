@@ -116,9 +116,9 @@ sgdisk -n 0:0:0 -t 0:8300 -c 0:data /dev/$datadisk
 mkfs.ext4 /dev/${datadisk}1
 mkfs.ext4 /dev/${datadisk}2
 
-mkdir /agent || true
+mkdir -p /agent
 mount /dev/${datadisk}1 /agent
-mkdir /data || true
+mkdir -p /data
 mount /dev/${datadisk}2 /data
 
 # clone sonic-mgmt repo
