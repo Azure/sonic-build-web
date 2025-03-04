@@ -27,15 +27,15 @@ function build_and_install_kmodule()
     SUBLEVEL=$(echo $KERNEL_MAINVERSION | cut -d. -f3)
 
     # Install the required debian packages to build the kernel modules
-    apt-get update
-    apt-get install -y build-essential linux-headers-${KERNEL_RELEASE} autoconf pkg-config fakeroot
-    apt-get install -y flex bison libssl-dev libelf-dev dwarves
-    apt-get install -y libnl-route-3-200 libnl-route-3-dev libnl-cli-3-200 libnl-cli-3-dev libnl-3-dev
+    sudo apt-get -o DPkg::Lock::Timeout=600 update
+    sudo apt-get -o DPkg::Lock::Timeout=600 install -y build-essential linux-headers-${KERNEL_RELEASE} autoconf pkg-config fakeroot
+    sudo apt-get -o DPkg::Lock::Timeout=600 install -y flex bison libssl-dev libelf-dev dwarves
+    sudo apt-get -o DPkg::Lock::Timeout=600 install -y libnl-route-3-200 libnl-route-3-dev libnl-cli-3-200 libnl-cli-3-dev libnl-3-dev
 
     # Add the apt source mirrors and download the linux image source code
     cp /etc/apt/sources.list /etc/apt/sources.list.bk
     sed -i "s/^# deb-src/deb-src/g" /etc/apt/sources.list
-    apt-get update
+    sudo apt-get -o DPkg::Lock::Timeout=600 update
     KERNEL_PACKAGE_SOURCE=$(apt-cache show linux-image-unsigned-${KERNEL_RELEASE} | grep ^Source: | cut -d':' -f 2)
     KERNEL_PACKAGE_VERSION=$(apt-cache show linux-image-unsigned-${KERNEL_RELEASE} | grep ^Version: | cut -d':' -f 2)
     SOURCE_PACKAGE_VERSION=$(apt-cache showsrc ${KERNEL_PACKAGE_SOURCE} | grep ^Version: | cut -d':' -f 2)
@@ -46,11 +46,11 @@ function build_and_install_kmodule()
             "your system so that it's running the matching kernel version." >&2
         echo "Continuing with the build anyways" >&2
     fi
-    apt-get source linux-image-unsigned-${KERNEL_RELEASE} > source.log
+    sudo apt-get -o DPkg::Lock::Timeout=600 source linux-image-unsigned-${KERNEL_RELEASE} > source.log
 
     # Recover the original apt sources list
     cp /etc/apt/sources.list.bk /etc/apt/sources.list
-    apt-get update
+    sudo apt-get -o DPkg::Lock::Timeout=600 update
 
     # Build the Linux kernel module drivers/net/team and vrf
     cd $(find . -maxdepth 1 -type d | grep -v "^.$")
@@ -177,7 +177,7 @@ useradd -M sonictmp
 
 # echo creating tmp AzDevOps account
 tmpuser=AzDevOps
-useradd -m $tmpuser || echo "User already exists."
+useradd -m $tmpuser
 usermod -a -G docker $tmpuser
 usermod -a -G adm $tmpuser
 usermod -a -G sudo $tmpuser
@@ -197,9 +197,9 @@ sgdisk -n 0:0:0 -t 0:8300 -c 0:data /dev/$datadisk
 mkfs.ext4 /dev/${datadisk}1
 mkfs.ext4 /dev/${datadisk}2
 
-mkdir -p /agent
+mkdir /agent
 mount /dev/${datadisk}1 /agent
-mkdir -p /data
+mkdir /data
 mount /dev/${datadisk}2 /data
 
 # clone sonic-mgmt repo
