@@ -126,5 +126,3 @@ pushd /data
 git clone https://github.com/Azure/sonic-mgmt
 chown -R $tmpuser.$tmpuser /data/sonic-mgmt
 popd
-
-sudo -u "$tmpuser" bash -c 'cd ~ && exec bash'
