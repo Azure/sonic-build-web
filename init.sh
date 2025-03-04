@@ -128,4 +128,4 @@ chown -R $tmpuser.$tmpuser /data/sonic-mgmt
 popd
 
 sudo su $tmpuser
-cd ../$tmpuser/
+cd ~
