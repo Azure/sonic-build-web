@@ -1,6 +1,7 @@
 const spawnSync = require('child_process').spawnSync;
 const { Octokit } = require('@octokit/rest');
 const util = require('util');
+const { setTimeout } = require('timers/promises');
 const akv = require('./keyvault');
 const InProgress = 'in_progress'
 const MsConflict = 'ms_conflict'
@@ -56,15 +57,22 @@ function init(app) {
             } else {
                 body='/azp run Azure.sonic-buildimage'
             }
+            app.log.info(`[ AUTO COMMENT ] repo: ${repo}, PR: ${issue_number}, body: ${body}`)
             const sonicbld_octokit = new Octokit({
                 auth: gh_token,
             });
-            sonicbld_octokit.rest.issues.createComment({
-                owner,
-                repo,
-                issue_number,
-                body,
-            });
+            try {
+                await setTimeout(5000)
+                const response  = sonicbld_octokit.rest.issues.createComment({
+                    owner,
+                    repo,
+                    issue_number,
+                    body,
+                });
+                app.log.info(`[ AUTO COMMENT ] Comment created: ${response.data}`)
+            } catch(error) {
+                app.log.error(`[ AUTO COMMENT ] Comment error: ${error}`)
+            }
         }
         if ("sonic-net/sonic-buildimage" != full_name) {
             app.log.info(`[ CONFLICT DETECT ] [${uuid}] repo not match!`)
