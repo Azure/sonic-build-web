@@ -47,4 +47,5 @@ function init(app)
 
 module.exports = Object.freeze({
     init: init,
+    sendEventBatch: sendEventBatch,
 });
