@@ -36,7 +36,7 @@ async function check_create(app, context, uuid, owner, repo, url, commit, check_
     let payload = {
         "action": status,
         "pr_url": url,
-        "output": output_title + output_summary,
+        "output": output_summary,
         "result": result,
     };
     let eventData = {
@@ -202,16 +202,12 @@ function init(app) {
                 app.log.info([`[ CONFLICT DETECT ] [${uuid}] Exit: 0`, url].join(" "))
                 description = `${SUCCESS}<br>${mspr}`
             }
-            check_create(app, context, uuid, owner, repo, url, commit, MsConflict, ms_conflict_result, COMPLETED, "MS conflict detect", description)
+            check_create(app, context, uuid, owner, repo, url, commit, MsConflict, ms_conflict_result, COMPLETED, "MS conflict detect", `fail: ${description}`)
         }
         if ( ['ALL',MsChecker].includes(check_suite) ) {
-            description = `Please check result in ${mspr}`
-            check_create(app, context, uuid, owner, repo, url, commit, MsChecker, SUCCESS, COMPLETED, "MS PR validation\n"+ms_checker_result, '')
-            //if (ms_checker_result == InProgress){
-            //    check_create(app, context, uuid, owner, repo, commit, MsChecker, null, InProgress, "MS PR validation", description)
-            //} else {
-            //    check_create(app, context, uuid, owner, repo, commit, MsChecker, ms_checker_result, COMPLETED, "MS PR validation", description)
-            //}
+            description = `inprogress: ${mspr}`
+            check_create(app, context, uuid, owner, repo, url, commit, MsChecker, SUCCESS, COMPLETED, "MS PR validation", description)
+            //  check_create(app, context, uuid, owner, repo, url, commit, MsChecker, null, InProgress, "MS PR validation", description)
         }
         app.log.error(`[ CONFLICT DETECT ] [${uuid}] Exit Code: ${run.status}`)
     });
