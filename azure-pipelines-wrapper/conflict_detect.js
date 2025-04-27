@@ -1,6 +1,8 @@
 const spawnSync = require('child_process').spawnSync;
 const { Octokit } = require('@octokit/rest');
 const util = require('util');
+const { setTimeout } = require('timers/promises');
+const eventhub = require('./eventhub');
 const akv = require('./keyvault');
 const InProgress = 'in_progress'
 const MsConflict = 'ms_conflict'
@@ -10,8 +12,8 @@ const COMPLETED = 'completed'
 const FAILURE = 'failure'
 const SUCCESS = 'success'
 
-async function check_create(app, context, uuid, owner, repo, commit, check_name, result, status, output_title, output_summary){
-    if (result == '') {
+async function check_create(app, context, uuid, owner, repo, url, commit, check_name, result, status, output_title, output_summary){
+    if (! result) {
         app.log.error(`[ CONFLICT DETECT ] [${uuid}] check_create: result=BLANK`)
         result = SUCCESS
     }
@@ -21,14 +23,27 @@ async function check_create(app, context, uuid, owner, repo, commit, check_name,
         head_sha: commit,
         name: check_name,
         status: status,
+        conclusion: result,
         output: {
             title: output_title,
             summary: output_summary,
         },
     }
-    if ( result != null ){ param.conclusion = result }
     app.log.info([`[ CONFLICT DETECT ] [${uuid}] check_create`, result, status, output_title, output_summary].join(" "))
     let check = await context.octokit.rest.checks.create(param);
+    let eventDatas = [];
+    let dateString = new Date().toISOString()
+    let payload = {
+        "action": status,
+        "pr_url": url,
+        "output": output_summary,
+        "result": result,
+    };
+    let eventData = {
+        body: {"Timestamp": dateString, "Name": check_name, "Action": status, "Payload": payload}
+    };
+    eventDatas.push(eventData);
+    eventhub.sendEventBatch(eventDatas, app);
     if (check.status/10 >= 30 || check.status/10 < 20){
         app.log.error([`[ CONFLICT DETECT ] [${uuid}] check_create`, util.inspect(check, {depth: null})].join(" "))
     } else {
@@ -56,15 +71,22 @@ function init(app) {
             } else {
                 body='/azp run Azure.sonic-buildimage'
             }
+            app.log.info(`[ AUTO COMMENT ] repo: ${repo}, PR: ${issue_number}, body: ${body}`)
             const sonicbld_octokit = new Octokit({
                 auth: gh_token,
             });
-            sonicbld_octokit.rest.issues.createComment({
-                owner,
-                repo,
-                issue_number,
-                body,
-            });
+            try {
+                await setTimeout(5000)
+                const response  = await sonicbld_octokit.rest.issues.createComment({
+                    owner,
+                    repo,
+                    issue_number,
+                    body,
+                });
+                app.log.info(`[ AUTO COMMENT ] Comment created: ${response.data}`)
+            } catch(error) {
+                app.log.error(`[ AUTO COMMENT ] Comment error: ${error}`)
+            }
         }
         if ("sonic-net/sonic-buildimage" != full_name) {
             app.log.info(`[ CONFLICT DETECT ] [${uuid}] repo not match!`)
@@ -180,16 +202,12 @@ function init(app) {
                 app.log.info([`[ CONFLICT DETECT ] [${uuid}] Exit: 0`, url].join(" "))
                 description = `${SUCCESS}<br>${mspr}`
             }
-            check_create(app, context, uuid, owner, repo, commit, MsConflict, ms_conflict_result, COMPLETED, "MS conflict detect", description)
+            check_create(app, context, uuid, owner, repo, url, commit, MsConflict, ms_conflict_result, COMPLETED, "MS conflict detect", `${ms_conflict_result}: ${description}`)
         }
         if ( ['ALL',MsChecker].includes(check_suite) ) {
-            description = `Please check result in ${mspr}`
-            check_create(app, context, uuid, owner, repo, commit, MsChecker, SUCCESS, COMPLETED, "MS PR validation\n"+ms_checker_result, '')
-            //if (ms_checker_result == InProgress){
-            //    check_create(app, context, uuid, owner, repo, commit, MsChecker, null, InProgress, "MS PR validation", description)
-            //} else {
-            //    check_create(app, context, uuid, owner, repo, commit, MsChecker, ms_checker_result, COMPLETED, "MS PR validation", description)
-            //}
+            description = `inprogress: ${mspr}`
+            check_create(app, context, uuid, owner, repo, url, commit, MsChecker, SUCCESS, COMPLETED, "MS PR validation", description)
+            //  check_create(app, context, uuid, owner, repo, url, commit, MsChecker, null, InProgress, "MS PR validation", description)
         }
         app.log.error(`[ CONFLICT DETECT ] [${uuid}] Exit Code: ${run.status}`)
     });
