@@ -202,7 +202,7 @@ function init(app) {
                 app.log.info([`[ CONFLICT DETECT ] [${uuid}] Exit: 0`, url].join(" "))
                 description = `${SUCCESS}<br>${mspr}`
             }
-            check_create(app, context, uuid, owner, repo, url, commit, MsConflict, ms_conflict_result, COMPLETED, "MS conflict detect", `fail: ${description}`)
+            check_create(app, context, uuid, owner, repo, url, commit, MsConflict, ms_conflict_result, COMPLETED, "MS conflict detect", `${ms_conflict_result}: ${description}`)
         }
         if ( ['ALL',MsChecker].includes(check_suite) ) {
             description = `inprogress: ${mspr}`
