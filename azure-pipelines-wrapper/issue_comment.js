@@ -43,29 +43,35 @@ function init(app) {
                 return;
             }
 
-            if (issue_user_login == comment_user_login){
-                command = null;
-                if (comment_body.toLowerCase().startsWith('/azurepipelineswrapper run')){
+            command = null;
+            if (comment_body.toLowerCase().startsWith('/azurepipelineswrapper run')){
+                if (issue_user_login == comment_user_login){
                     command = '/AzurePipelines run' + comment_body.substring(26);
+                } else {
+                    command = 'Only PR owner can use /azpw run';
                 }
-                else if (comment_body.toLowerCase().startsWith('/azpw run')){
+            }
+            else if (comment_body.toLowerCase().startsWith('/azpw run')){
+                if (issue_user_login == comment_user_login){
                     command = '/AzurePipelines run' + comment_body.substring(9);
+                } else {
+                    command = 'Only PR owner can use /azpw run';
                 }
+            }
 
-                if (command){
-                    var token = await akv.getGithubToken();
-                    const octokit = new Octokit({
-                        auth: token,
-                    });
-                    console.log(`Creating issue comment ${command}`);
-                    await octokit.rest.issues.createComment({
-                        owner: payload.repository.owner.login,
-                        repo: payload.repository.name,
-                        issue_number: payload.issue.number,
-                        body: command,
-                    });
-                    return;
-                }
+            if (command){
+                var token = await akv.getGithubToken();
+                const octokit = new Octokit({
+                    auth: token,
+                });
+                console.log(`Creating issue comment ${command}`);
+                await octokit.rest.issues.createComment({
+                    owner: payload.repository.owner.login,
+                    repo: payload.repository.name,
+                    issue_number: payload.issue.number,
+                    body: command,
+                });
+                return;
             }
         }
   });
