@@ -7,8 +7,10 @@ set -ex
 
 sed -i 's/1/0/' /etc/apt/apt.conf.d/20auto-upgrades || true
 source /etc/os-release
+set -e
 
 function install_packages(){
+    set -e
     # install docker
     curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --yes --dearmor -o /etc/apt/keyrings/docker.gpg
     echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu jammy stable" > /etc/apt/sources.list.d/docker.list
