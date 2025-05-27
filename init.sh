@@ -40,19 +40,6 @@ sysctl -w net.core.rmem_default=509430500
 # enable nat
 iptables -t nat -A POSTROUTING -s 10.250.0.0/24 -o eth0 -j MASQUERADE
 
-# echo add tmp user so that AzDevOps user id will be 1002.
-# this is needed as sonic-mgmt container has an user id 1001 already
-useradd -M sonictmp
-
-# echo creating tmp AzDevOps account
-tmpuser=AzDevOps
-useradd -m $tmpuser
-usermod -a -G docker $tmpuser
-usermod -a -G adm $tmpuser
-usermod -a -G sudo $tmpuser
-echo "$tmpuser ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/100-$tmpuser
-chmod 440 /etc/sudoers.d/100-$tmpuser
-
 # pip3 install docker==6.1.0 requests==2.31.0
 
 # create two partition on the 1T data disk
@@ -69,3 +56,18 @@ mkdir /agent
 mount /dev/${datadisk}1 /agent
 mkdir /data
 mount /dev/${datadisk}2 /data
+
+# echo add tmp user so that AzDevOps user id will be 1002.
+# this is needed as sonic-mgmt container has an user id 1001 already
+cat /etc/passwd
+useradd -M sonictmp
+
+# echo creating tmp AzDevOps account
+tmpuser=AzDevOps
+useradd -m $tmpuser
+usermod -a -G docker $tmpuser
+usermod -a -G adm $tmpuser
+usermod -a -G sudo $tmpuser
+echo "$tmpuser ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/100-$tmpuser
+chmod 440 /etc/sudoers.d/100-$tmpuser
+
