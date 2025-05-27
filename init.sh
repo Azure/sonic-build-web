@@ -14,36 +14,7 @@ function install_packages(){
     echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu jammy stable" > /etc/apt/sources.list.d/docker.list
     apt-get -o DPkg::Lock::Timeout=600 update
     apt-get -o DPkg::Lock::Timeout=600 install -y docker-ce docker-ce-cli containerd.io
-
-    # install utilities for image build
     apt-get -o DPkg::Lock::Timeout=600 install -y make python3-pip
-    # for team services agent
-    # apt-get -o DPkg::Lock::Timeout=600 install -y python-is-python2
-    # install python2 libvirt 5.10.0
-    # apt-get -o DPkg::Lock::Timeout=600 install -y python2-dev python-pkg-resources libvirt-dev pkg-config
-    # curl https://bootstrap.pypa.io/pip/2.7/get-pip.py | python2
-    # pip2 install libvirt-python==5.10.0
-    # pip2 install docker==4.4.1
-
-    # install packages for vs test
-    pip3 install pytest exabgp docker redis
-    apt-get -o DPkg::Lock::Timeout=600 install -y libhiredis0.14
-
-    # install packages for kvm test
-    apt-get -o DPkg::Lock::Timeout=600 install -y libvirt-clients \
-        qemu \
-        openvswitch-switch \
-        net-tools \
-        bridge-utils \
-        vlan \
-        python3-libvirt \
-        libzmq3-dev \
-        libzmq5 \
-        libboost-serialization1.74.0 \
-        libboost1.74-dev \
-        libboost-dev \
-        libyang-dev \
-        uuid-dev
 }
 
 for ((i=0;i<3;i++));do
