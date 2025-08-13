@@ -12,15 +12,14 @@
     "probot-app"
   ],
   "scripts": {
-    "start": "node main.js",
-    "start-pm2-no-use": "pm2 start main.js --no-daemon",
-    "start-forever-no-use": "forever start ./main.js",
-    "test": "jest"
+    "prestart": "npm ci",
+    "start": "node main.js"
   },
   "dependencies": {
     "@azure/event-hubs": "^5.8.0",
     "@azure/identity": "^4.2.0",
     "@azure/keyvault-secrets": "^4.3.0",
+    "@octokit/app": "^13.1.4",
     "@octokit/rest": "^18.10.0",
     "azure-devops-node-api": "^11.0.1",
     "node-cache": "^5.1.2",

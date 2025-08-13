@@ -7,13 +7,13 @@ const check_prefix = 'coverage.';
 // The context can be issue_comment or check_run
 async function  create_checks_by_azp_check_run(context, azp_check_run){
     if (azp_check_run.app.name != "Azure Pipelines"){
-        context.log(`Skip the check_run:${azp_check_run.id}, for the app name: ${azp_check_run.app.name}`);
+        console.log(`Skip the check_run:${azp_check_run.id}, for the app name: ${azp_check_run.app.name}`);
         return null;
     }
 
     var properties = await azp.getProperties(azp_check_run);
     if (! properties){
-        context.log(`Skipped the check_run:${azp_check_run.id}, for no properties`);
+        console.log(`Skipped the check_run:${azp_check_run.id}, for no properties`);
         return null;
     }
 
@@ -24,7 +24,7 @@ async function  create_checks_by_azp_check_run(context, azp_check_run){
         }
     }
     if (! coverages){
-        context.log(`Skipped for no coverages`);
+        console.log(`Skipped for no coverages`);
         return null;
     }
 
@@ -44,7 +44,7 @@ async function  create_checks_by_azp_check_run(context, azp_check_run){
         return null;
     }
 
-    context.log(`Succeeded to list checks for of ${owner}/${repo}/${azp_check_run.head_sha} for app ${process.env.APP_ID}`);
+    console.log(`Succeeded to list checks for of ${owner}/${repo}/${azp_check_run.head_sha} for app ${process.env.APP_ID}`);
     var checks = {};
     for (check of check_runs.data.check_runs){
         if (!check.started_at){
@@ -62,7 +62,7 @@ async function  create_checks_by_azp_check_run(context, azp_check_run){
     }
 
     var created_checks = [];
-    context.log(`Found coverages count ${Object.keys(coverages).length}`);
+    console.log(`Found coverages count ${Object.keys(coverages).length}`);
     for (const [key, value] of Object.entries(coverages)){
         var coverageInfo = JSON.parse(value);
         var definitionName = coverageInfo.definitionName;
@@ -82,7 +82,7 @@ async function  create_checks_by_azp_check_run(context, azp_check_run){
         var info = azp.getAzDevInfoFromCheckPayload(azp_check_run);
         var details_url = `https://dev.azure.com/${info.org}/${info.projectId}/_build/results?buildId=${info.buildId}&view=logs&jobId=${jobId}`;
         var coverage_url = `https://dev.azure.com/${info.org}/${info.projectId}/_build/results?buildId=${info.buildId}&view=codecoverage-tab`;
-        context.log(`Creating check ${checkName}`);
+        console.log(`Creating check ${checkName}`);
         var num_lines = coverageInfo["cover.num_lines"];
         var num_violations = coverageInfo["cover.num_violations"];
         var percent_covered = coverageInfo["cover.percent_covered"];
@@ -110,11 +110,11 @@ async function  create_checks_by_azp_check_run(context, azp_check_run){
             }
         });
         if (check.status != 200 && check.status != 201){
-            context.error(`Return ${check.status}, failed to create the check for ${owner}/${repo}/commit/${azp_check_run.head_sha}`);
+            console.error(`Return ${check.status}, failed to create the check for ${owner}/${repo}/commit/${azp_check_run.head_sha}`);
             continue;
         }
         created_checks.push(check.data);
-        context.log(`Created check ${checkName}, id: ${check.data.id}`);
+        console.log(`Created check ${checkName}, id: ${check.data.id}`);
     }
 
     return created_checks;
@@ -146,7 +146,7 @@ async function  create_checks_by_pullRequest(context, owner, repo, pullRequestId
         return null;
     }
 
-    context.log(`Succeeded to get pull request for ${owner}/${repo}/${pullRequestId}`);
+    console.log(`Succeeded to get pull request for ${owner}/${repo}/${pullRequestId}`);
     var check_runs = await context.octokit.checks.listForRef({
         owner: owner,
         repo: repo,
