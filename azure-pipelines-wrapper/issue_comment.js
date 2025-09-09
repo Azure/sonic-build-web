@@ -45,18 +45,10 @@ function init(app) {
 
             command = null;
             if (comment_body.toLowerCase().startsWith('/azurepipelineswrapper run')){
-                if (issue_user_login == comment_user_login){
-                    command = '/AzurePipelines run' + comment_body.substring(26);
-                } else {
-                    command = 'Only PR owner can use /azpw run';
-                }
+                command = '/AzurePipelines run' + comment_body.substring(26);
             }
             else if (comment_body.toLowerCase().startsWith('/azpw run')){
-                if (issue_user_login == comment_user_login){
-                    command = '/AzurePipelines run' + comment_body.substring(9);
-                } else {
-                    command = 'Only PR owner can use /azpw run';
-                }
+                command = '/AzurePipelines run' + comment_body.substring(9);
             }
 
             if (command){

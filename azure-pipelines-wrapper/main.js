@@ -16,7 +16,7 @@ async function startServer() {
         webhookProxy: process.env.WEBHOOK_PROXY_URL,
     });
 
-    server.expressApp.get("/", (req, res) => res.end("Welcome GitHub Application: Azure Pipelines Wrapper"));
+    server.expressApp.get("/", (req, res) => res.status(404).end());
     await server.load(app);
 
     server.start();
