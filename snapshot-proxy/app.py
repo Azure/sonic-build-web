@@ -17,7 +17,7 @@ def redirect_to_target_a(target):
     # debian/20250910T001830Z/dists/bookworm/main/binary-amd64/Packages   ->   debian/ts/20250910T001830Z/dists/bookworm/main/binary-amd64/Packages
     # debian/20250910T001830Z/pool/main/0/0ad/0ad-dbg_0.0.17-1_amd64.deb   ->   debian/pool/main/0/0ad/0ad-dbg_0.0.17-1_amd64.deb
     # Construct the destination URL
-    target_list = taget.split('/')
+    target_list = target.split('/')
     if target_list[2]=="pool":
         cleaned = '/'.join([target_list[0]] + target_list[2:])
     elif target_list[2]=="dists":
