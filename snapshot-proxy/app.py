@@ -14,9 +14,18 @@ def redirect_to_target(target):
 
 @app.route('/snapshot/<path:target>')
 def redirect_to_target_a(target):
+    # debian/20250910T001830Z/dists/bookworm/main/binary-amd64/Packages   ->   debian/ts/20250910T001830Z/dists/bookworm/main/binary-amd64/Packages
+    # debian/20250910T001830Z/pool/main/0/0ad/0ad-dbg_0.0.17-1_amd64.deb   ->   debian/pool/main/0/0ad/0ad-dbg_0.0.17-1_amd64.deb
     # Construct the destination URL
-    cleaned = re.sub(r'^([^/]+/)[^/]+/', r'\1', target)
-    destination = f'http://packages.trafficmanager.net/snapshot/{cleaned}'
+    target_list = taget.split('/')
+    if target_list[2]=="pool":
+        cleaned = '/'.join([target_list[0]] + target_list[2:])
+    elif target_list[2]=="dists":
+        cleaned = '/'.join([target_list[0]] + ["ts"] + target_list[1:])
+    else:
+        cleaned = 'NA'
+
+    destination = f'http://packages.trafficmanager.net/debian-snapshot/{cleaned}'
 
     return redirect(destination, code=302)
 
