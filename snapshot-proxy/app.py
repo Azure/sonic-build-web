@@ -14,8 +14,8 @@ def redirect_to_target(target):
 
 @app.route('/snapshot/<path:target>')
 def redirect_to_target_a(target):
-    # debian/20250910T001830Z/dists/bookworm/main/binary-amd64/Packages   ->   debian/ts/20250910T001830Z/dists/bookworm/main/binary-amd64/Packages
-    # debian/20250910T001830Z/pool/main/0/0ad/0ad-dbg_0.0.17-1_amd64.deb   ->   debian/pool/main/0/0ad/0ad-dbg_0.0.17-1_amd64.deb
+    # debian/20250910T001830Z/dists/bookworm/main/binary-amd64/Packages   ->   debian/ts/20250910T001830Z/dists/bookworm/main/binary-amd64/Packages    http://packages.trafficmanager.net/debian-snapshot/debian/ts/20250910T001830Z/dists/bookworm/main/binary-amd64/Packages
+    # debian/20250910T001830Z/pool/main/0/0ad/0ad-dbg_0.0.17-1_amd64.deb   ->   debian/pool/main/0/0ad/0ad-dbg_0.0.17-1_amd64.deb                      http://packages.trafficmanager.net/debian-snapshot/debian/pool/main/0/0ad/0ad-dbg_0.0.17-1_amd64.deb
     # Construct the destination URL
     target_list = target.split('/')
     if target_list[2]=="pool":
