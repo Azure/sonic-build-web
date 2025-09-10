@@ -10,7 +10,15 @@ def redirect_to_target(target):
     cleaned = re.sub(r'/ts/[^/]+', '', target)
     destination = f'http://packages.trafficmanager.net/debian-snapshot/{cleaned}'
 
-    return redirect(destination, code=302)  # Use 301 for permanent redirect
+    return redirect(destination, code=302)
+
+@app.route('/snapshot/<path:target>')
+def redirect_to_target_a(target):
+    # Construct the destination URL
+    cleaned = re.sub(r'[^/]+/', '', target)
+    destination = f'http://packages.trafficmanager.net/snapshot/{cleaned}'
+
+    return redirect(destination, code=302)
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=80)
