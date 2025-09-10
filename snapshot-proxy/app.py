@@ -15,7 +15,7 @@ def redirect_to_target(target):
 @app.route('/snapshot/<path:target>')
 def redirect_to_target_a(target):
     # Construct the destination URL
-    cleaned = re.sub(r'[^/]+/', '', target)
+    cleaned = re.sub(r'^([^/]+/)[^/]+/', r'\1', target)
     destination = f'http://packages.trafficmanager.net/snapshot/{cleaned}'
 
     return redirect(destination, code=302)
