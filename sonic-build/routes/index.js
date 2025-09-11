@@ -4,6 +4,12 @@ const url = require('url');
 
 /* GET home page. */
 router.get('/', function(req, res, next) {
+  //res.status(404).send('Not Found');
+  res.redirect('/ui/sonic/pipelines');
+});
+
+// UI entry
+router.get('/pipelines', function(req, res, next) {
   res.redirect('/ui/sonic/pipelines');
 });
 
