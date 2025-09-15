@@ -61,7 +61,7 @@ async function query(queryString, timoutInSeconds = 1000 * 20, fromAzureAPI = fa
     }
     catch (error) {
         console.log(error);
-        throw error;
+        return error;
     }
 }
 

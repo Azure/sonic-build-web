@@ -49,12 +49,16 @@ router.get('/sonic/pipelines', async function(req, res, next) {
 
     var fromAzureAPI = req.query.fromAzureAPI == 'true';
     var results = await kusto.query(queryCommand, 1000 * 20, fromAzureAPI=fromAzureAPI);
-    res.render('pipelines', { title: 'Pipelines',
-      rows: results['_rows'],
-      fromAzureAPI: fromAzureAPI,
-      buildType: req.query.buildType,
-      navigators:[] });
-  });
+    if (results instanceof Error){
+      res.status(500).json(results)
+    } else {
+      res.render('pipelines', { title: 'Pipelines',
+        rows: results['_rows'],
+        fromAzureAPI: fromAzureAPI,
+        buildType: req.query.buildType,
+        navigators:[] });
+    }
+})
 
 /* Get SONiC builds. */
 router.get('/sonic/pipelines/:definitionId/builds', async function(req, res, next) {
