@@ -27,5 +27,6 @@ cat log.log
 folders=$(ls -l | grep ^d | awk '{print$NF}')
 [ -n $folders ] && tar -czf folders.tar.gz $folders --remove-files
 cd ..
-mv $tmp /data/workspace/$FOLDER-$REPO/
+cp $tmp /data/workspace/$FOLDER-$REPO/ -r
+rm $tmp/folders.tar.gz -rf
 exit $rc
