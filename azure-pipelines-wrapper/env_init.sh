@@ -9,3 +9,4 @@ echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubc
 apt-get update
 apt-get install git jq gh parallel -y
 git config --global --add safe.directory '*'
+chmod +x /home/site/wwwroot/node_modules/.bin/copilot

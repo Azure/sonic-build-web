@@ -16,9 +16,11 @@
     "start": "node main.js"
   },
   "dependencies": {
+    "@azure/communication-email": "^1.0.0",
     "@azure/event-hubs": "^5.8.0",
     "@azure/identity": "^4.2.0",
     "@azure/keyvault-secrets": "^4.3.0",
+    "@github/copilot": "^1.0.7",
     "@octokit/app": "^13.1.4",
     "@octokit/rest": "^18.10.0",
     "azure-devops-node-api": "^11.0.1",

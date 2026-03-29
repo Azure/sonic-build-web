@@ -11,7 +11,7 @@ const PRPrefix = 'https://dev.azure.com/msazure/One/_git/Networking-acs-buildima
 async function init(app){
     output = ''
     try{
-        output = execFileSync('bash', ['-c', 'site/wwwroot/env_init.sh 2>&1 | while IFS= read -r line; do echo [$(date +%FT%TZ)] $line >> env_init.stderr; done;' ], { encoding: 'utf-8' })
+        output = execFileSync('bash', ['-c', '/home/site/wwwroot/env_init.sh 2>&1 | while IFS= read -r line; do echo [$(date +%FT%TZ)] $line >> env_init.stderr; done;' ], { encoding: 'utf-8' })
         app.log.info('[ INIT ] Succeeded!!!')
     } catch(e){
         app.log.error(`[ INIT ] Failed!!! ${output}`)
