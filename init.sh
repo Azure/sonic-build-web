@@ -15,6 +15,7 @@ function install_packages(){
     curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --yes --dearmor -o /etc/apt/keyrings/docker.gpg
     echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu jammy stable" > /etc/apt/sources.list.d/docker.list
     apt-get -o DPkg::Lock::Timeout=600 update
+    apt-get -o DPkg::Lock::Timeout=600 upgrade -y
     apt-get -o DPkg::Lock::Timeout=600 install -y docker-ce docker-ce-cli containerd.io
     apt-get -o DPkg::Lock::Timeout=600 install -y make python3-pip
 }
