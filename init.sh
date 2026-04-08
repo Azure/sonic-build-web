@@ -7,23 +7,14 @@ set -ex
 
 sed -i 's/1/0/' /etc/apt/apt.conf.d/20auto-upgrades || true
 source /etc/os-release
-set -e
 
-function install_packages(){
-    set -e
-    # install docker
-    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --yes --dearmor -o /etc/apt/keyrings/docker.gpg
-    echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu jammy stable" > /etc/apt/sources.list.d/docker.list
-    apt-get -o DPkg::Lock::Timeout=600 update
-    apt-get -o DPkg::Lock::Timeout=600 upgrade -y
-    apt-get -o DPkg::Lock::Timeout=600 install -y docker-ce docker-ce-cli containerd.io
-    apt-get -o DPkg::Lock::Timeout=600 install -y make python3-pip
-}
-
-for ((i=0;i<3;i++));do
-    install_packages && break
-    sleep 3
-done
+# install docker
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --yes --dearmor -o /etc/apt/keyrings/docker.gpg
+echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu jammy stable" > /etc/apt/sources.list.d/docker.list
+apt-get update
+NEEDRESTART_MODE=l DEBIAN_FRONTEND=noninteractive apt-get -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" -y upgrade
+apt-get install -y docker-ce docker-ce-cli containerd.io
+apt-get install -y make python3-pip
 
 # install br_netfilter kernel module
 modprobe br_netfilter
