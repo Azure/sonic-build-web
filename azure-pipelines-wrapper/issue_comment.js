@@ -205,7 +205,7 @@ async function retryFailedBuilds(context) {
         var comment_body = `The following failed(or canceled) jobs were not retried:\n`;
         comment_body += failedJobs.map(j => `- ${j.name}`).join('\n');
         for (var job of failedJobs) {
-            if (job.name === 'Cancel previous test plans for same PR' || job.name.includes('[OPTIONAL]')) {
+            if (job.name === 'Cancel previous test plans for same PR' || job.name.includes('[OPTIONAL]') || job.name.includes('vulnerability scan')) {
                 comment_body += `\n\nJob ${job.name} is an optional job and does not block the PR merge, so it will not be retried.`;
             }
         }
@@ -229,7 +229,7 @@ async function retryFailedBuilds(context) {
             console.log(`Retried stage '${stage.identifier}' in build ${latestBuild.buildId}: ${output}`);
             summaryLines.push(`\n\n✅Stage **${stage.identifier}**:`);
             for (var job of failedJobs.filter(j => j.identifier.startsWith(stage.identifier))) {
-                if (job.name === 'Cancel previous test plans for same PR' || job.name.includes('[OPTIONAL]')) {
+                if (job.name === 'Cancel previous test plans for same PR' || job.name.includes('[OPTIONAL]') || job.name.includes('vulnerability scan')) {
                     summaryLines.push(`- Job ${job.name}: skipped (optional job and does not block the PR merge).`);
                 } else {
                     summaryLines.push(`- Job ${job.name}: retried.`);
