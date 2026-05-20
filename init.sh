@@ -13,7 +13,18 @@ curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --yes --dearmor -o
 echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu jammy stable" > /etc/apt/sources.list.d/docker.list
 apt-get update
 NEEDRESTART_MODE=l DEBIAN_FRONTEND=noninteractive apt-get -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" -y upgrade
-apt-get install -y docker-ce docker-ce-cli containerd.io
+
+# pin docker version to unblock sonic-swss, sonic-sairedis, and sonic-swss-common VS test
+DOCKER_VERSION=$(apt-cache madison docker-ce | awk '{print $3}' | grep -E '29\.5\.0' | head -n1)
+if [ -n "$DOCKER_VERSION" ]; then
+    echo "Installing docker-ce version $DOCKER_VERSION"
+    apt-get install -y docker-ce=$DOCKER_VERSION docker-ce-cli=$DOCKER_VERSION containerd.io
+    apt-mark hold docker-ce docker-ce-cli
+else
+    echo "Docker version 29.5.0 not found, installing the latest version"
+    apt-get install -y docker-ce docker-ce-cli containerd.io
+fi
+
 apt-get install -y make python3-pip
 
 # install br_netfilter kernel module
