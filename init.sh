@@ -27,6 +27,9 @@ fi
 
 apt-get install -y make python3-pip
 
+# install uv (Python package manager)
+curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
+
 # install br_netfilter kernel module
 modprobe br_netfilter
 # set sysctl bridge parameters for testbed
@@ -42,8 +45,6 @@ sysctl -w net.core.rmem_default=509430500
 
 # enable nat
 iptables -t nat -A POSTROUTING -s 10.250.0.0/24 -o eth0 -j MASQUERADE
-
-# pip3 install docker==6.1.0 requests==2.31.0
 
 # create two partition on the 1T data disk
 # first partition for azure pipeline agent
