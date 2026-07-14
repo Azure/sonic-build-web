@@ -50,6 +50,7 @@ function init(app) {
         param.push(`PR_LABELS="${labels.join(',')}"`)
         if (payload.action == 'labeled') {
             param.push(`ACTION_LABEL="${payload.label.name}"`)
+            param.push(`ACTION_SENDER="${payload.sender.login}"`)
         }
 
         app.log.info(["[ AUTO CHERRY PICK ]"].concat(param).join(" "))
