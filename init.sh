@@ -25,7 +25,7 @@ else
     apt-get install -y docker-ce docker-ce-cli containerd.io
 fi
 
-apt-get install -y make python3-pip
+apt-get install -y make
 
 # install uv (Python package manager)
 curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
