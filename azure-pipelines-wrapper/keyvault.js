@@ -38,10 +38,6 @@ async function getAppWebhookSecret()
 {
     return await getSecretFromCache("WEBHOOK_SECRET");
 }
-async function getAzDevOpsToken()
-{
-    return await getSecretFromCache("MSSONIC_TOKEN");
-}
 async function getGithubToken()
 {
     return await getSecretFromCache("GITHUB_TOKEN");
@@ -55,7 +51,6 @@ async function getEventhubConnectionstring()
 module.exports = Object.freeze({
     getAppPrivateKey: getAppPrivateKey,
     getAppWebhookSecret: getAppWebhookSecret,
-    getAzDevOpsToken: getAzDevOpsToken,
     getSecretFromCache: getSecretFromCache,
     getGithubToken: getGithubToken,
     getEventhubConnectionstring: getEventhubConnectionstring,

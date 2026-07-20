@@ -4,6 +4,7 @@ const util = require('util');
 const { setTimeout } = require('timers/promises');
 const eventhub = require('./eventhub');
 const akv = require('./keyvault');
+const adoauth = require('./adoauth');
 const { EmailClient } = require("@azure/communication-email");
 const InProgress = 'in_progress'
 const MsConflict = 'ms_conflict'
@@ -221,7 +222,7 @@ function init(app) {
 
         var url, number, commit, base_branch, pr_owner, check_suite
         var script_branch = await akv.getSecretFromCache("CONFLICT_SCRIPT_BRANCH")
-        var msazure_token = await akv.getSecretFromCache("MSAZURE_TOKEN")
+        var msazure_token = await adoauth.getAdoAadToken()
 
         var param = Array()
         param.push(`FOLDER=conflict`)
@@ -278,7 +279,7 @@ function init(app) {
         param.push(`UUID=${uuid}`)
         param.push(`REPO=${repo}`)
         param.push(`GH_TOKEN=${gh_token}`)
-        param.push(`MSAZURE_TOKEN=${msazure_token}`)
+        param.push(`MSAZURE_TOKEN=x-access-token:${msazure_token}`)
         param.push(`SCRIPT_URL=https://mssonicbld:${gh_token}@raw.githubusercontent.com/Azure/sonic-pipelines-internal/${script_branch}/azure-pipelines/ms_conflict_detect.sh`)
         param.push(`PR_NUMBER=${number}`)
         param.push(`PR_URL=${url}`)
