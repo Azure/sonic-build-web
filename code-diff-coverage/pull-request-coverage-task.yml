@@ -16,10 +16,8 @@ steps:
           target_branch=$(System.PullRequest.TargetBranch)
           compare_branch=origin/${target_branch#refs/heads/}
           mkdir -p .diff-coverage/htmlcov
-          if [ -n "$(which pip3)" ]; then
-            sudo pip3 install diff-cover > /dev/null
-          else
-            sudo pip install diff-cover > /dev/null
+          if ! command -v diff-cover >/dev/null 2>&1; then
+            sudo uv pip install --system diff-cover
           fi
           diff-cover $converage_files --ignore-unstaged --compare-branch=$compare_branch --json-report=.diff-coverage/diff-cover.json > /dev/null
           diff-cover $converage_files --ignore-unstaged --compare-branch=$compare_branch --html-report=.diff-coverage/htmlcov/index.html
