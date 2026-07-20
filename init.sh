@@ -30,6 +30,9 @@ apt-get install -y make
 # install uv (Python package manager)
 curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
 
+# install diff-cover for PR code coverage on the agent
+uv pip install --system diff-cover
+
 # install br_netfilter kernel module
 modprobe br_netfilter
 # set sysctl bridge parameters for testbed
