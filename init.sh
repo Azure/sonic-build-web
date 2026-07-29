@@ -12,7 +12,7 @@ source /etc/os-release
 curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --yes --dearmor -o /etc/apt/keyrings/docker.gpg
 echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu jammy stable" > /etc/apt/sources.list.d/docker.list
 apt-get update
-NEEDRESTART_MODE=l DEBIAN_FRONTEND=noninteractive apt-get -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" -y upgrade
+NEEDRESTART_MODE=l DEBIAN_FRONTEND=noninteractive apt-get -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" -y dist-upgrade
 
 # pin docker version to unblock sonic-swss, sonic-sairedis, and sonic-swss-common VS test
 DOCKER_VERSION=$(apt-cache madison docker-ce | awk '{print $3}' | grep -E '29\.5\.0' | head -n1)
@@ -64,6 +64,10 @@ mount /dev/${datadisk}1 /agent
 mkdir /data
 mount /dev/${datadisk}2 /data
 
+# persist mounts across reboots
+echo "UUID=$(blkid -s UUID -o value /dev/${datadisk}1) /agent ext4 defaults,nofail 0 2" >> /etc/fstab
+echo "UUID=$(blkid -s UUID -o value /dev/${datadisk}2) /data  ext4 defaults,nofail 0 2" >> /etc/fstab
+
 # echo add tmp user so that AzDevOps user id will be 1002.
 # this is needed as sonic-mgmt container has an user id 1001 already
 cat /etc/passwd
@@ -78,3 +82,8 @@ usermod -a -G sudo $tmpuser
 echo "$tmpuser ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/100-$tmpuser
 chmod 440 /etc/sudoers.d/100-$tmpuser
 
+# reboot to apply new kernel if upgraded
+if [ -f /var/run/reboot-required ]; then
+   echo "Kernel/libs upgraded — rebooting"
+   systemctl reboot
+fi
