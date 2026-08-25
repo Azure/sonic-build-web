@@ -1,7 +1,7 @@
-const spawnSync = require('child_process').spawnSync;
 const { Octokit } = require('@octokit/rest');
 const util = require('util');
 const { setTimeout } = require('timers/promises');
+const actionQueue = require('./action_queue');
 const eventhub = require('./eventhub');
 const akv = require('./keyvault');
 const adoauth = require('./adoauth');
@@ -170,7 +170,7 @@ async function check_create(app, context, uuid, owner, repo, url, commit, check_
         body: {"Timestamp": dateString, "Name": check_name, "Action": status, "Payload": payload}
     };
     eventDatas.push(eventData);
-    eventhub.sendEventBatch(eventDatas, app);
+    await eventhub.sendEventBatch(eventDatas, app);
     if (check.status/10 >= 30 || check.status/10 < 20){
         app.log.error([`[ CONFLICT DETECT ] [${uuid}] check_create`, util.inspect(check, {depth: null})].join(" "))
     } else {
@@ -288,10 +288,10 @@ function init(app) {
         param.push(`PR_HEAD_COMMIT=${commit}`)
         param.push(`GITHUB_COPILOT_TOKEN=${await akv.getSecretFromCache("GITHUB_COPILOT_TOKEN") || ''}`)
 
-        // If it belongs to ms, comment on PR.
-        var description = '', comment_at = '', mspr = '', tmp = '', ms_conflict_result = '', ms_checker_result = '', conflict_ai_result = '', conflict_ai_description = '', output = ''
-        var run = spawnSync('./bash_action.sh', param, { encoding: 'utf-8' })
-        for (const line of run.stdout.split(/\r?\n/)){
+        actionQueue.enqueueBashAction(param, `conflict detect ${repo}#${number}`, app, async run => {
+            // If it belongs to ms, comment on PR.
+            var description = '', comment_at = '', mspr = '', tmp = '', ms_conflict_result = '', ms_checker_result = '', conflict_ai_result = '', conflict_ai_description = '', output = ''
+            for (const line of run.stdout.split(/\r?\n/)){
             output = line
             if (line.includes("pr_owner: ")){
                 comment_at = line.split(' ').pop()
@@ -359,14 +359,15 @@ function init(app) {
                 app.log.info([`[ CONFLICT DETECT ] [${uuid}] Exit: 0`, url].join(" "))
                 description = `${SUCCESS}<br>${mspr}`
             }
-            check_create(app, context, uuid, owner, repo, url, commit, MsConflict, ms_conflict_result, COMPLETED, "MS conflict detect", `${ms_conflict_result}: ${description}`)
+            await check_create(app, context, uuid, owner, repo, url, commit, MsConflict, ms_conflict_result, COMPLETED, "MS conflict detect", `${ms_conflict_result}: ${description}`)
         }
         if ( ['ALL',MsChecker].includes(check_suite) ) {
             description = `inprogress: ${mspr}`
-            check_create(app, context, uuid, owner, repo, url, commit, MsChecker, SUCCESS, COMPLETED, "MS PR validation", description)
+            await check_create(app, context, uuid, owner, repo, url, commit, MsChecker, SUCCESS, COMPLETED, "MS PR validation", description)
             //  check_create(app, context, uuid, owner, repo, url, commit, MsChecker, null, InProgress, "MS PR validation", description)
         }
-        app.log.error(`[ CONFLICT DETECT ] [${uuid}] Exit Code: ${run.status}`)
+            app.log.error(`[ CONFLICT DETECT ] [${uuid}] Exit Code: ${run.status}`)
+        });
     });
 };
 

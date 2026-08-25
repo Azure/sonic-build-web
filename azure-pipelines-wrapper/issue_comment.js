@@ -17,10 +17,8 @@ function init(app) {
     app.on("issue_comment.created", async (context) => {
         var payload = context.payload;
         if ('pull_request' in payload.issue){
-            issue_user_login = payload.issue.user.login;
-            comment_user_login = payload.comment.user.login;
-            comment_body = payload.comment.body.trim();
-            command = null;
+            let comment_body = payload.comment.body.trim();
+            let command = null;
 
             if (comment_body.toLowerCase().startsWith('/azpw ms_conflict') ){ return };
             console.log(`issue_comment.created, ${payload.comment.id}`);
