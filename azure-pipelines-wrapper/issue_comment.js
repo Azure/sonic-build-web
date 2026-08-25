@@ -95,18 +95,25 @@ function init(app) {
                 const octokit = new Octokit({
                     auth: github_token,
                 });
-                console.log(`Creating issue comment ${command}`);
-                await octokit.rest.issues.createComment({
-                    owner: payload.repository.owner.login,
-                    repo: payload.repository.name,
-                    issue_number: payload.issue.number,
-                    body: command,
-                });
-                actionQueue.enqueueAction(
-                    () => retryFailedBuilds(context),
-                    `retry failed builds ${payload.repository.full_name}#${payload.issue.number}`,
-                    app
-                );
+                try {
+                    actionQueue.enqueueAction(async () => {
+                        console.log(`Creating issue comment ${command}`);
+                        await octokit.rest.issues.createComment({
+                            owner: payload.repository.owner.login,
+                            repo: payload.repository.name,
+                            issue_number: payload.issue.number,
+                            body: command,
+                        });
+                        await retryFailedBuilds(context);
+                    }, `retry failed builds ${payload.repository.full_name}#${payload.issue.number}`, app);
+                } catch (error) {
+                    await octokit.rest.issues.createComment({
+                        owner: payload.repository.owner.login,
+                        repo: payload.repository.name,
+                        issue_number: payload.issue.number,
+                        body: "Unable to queue the retry because the action queue is full. Please try again later.",
+                    });
+                }
                 return;
             }
         }
