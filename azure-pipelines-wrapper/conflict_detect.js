@@ -170,7 +170,9 @@ async function check_create(app, context, uuid, owner, repo, url, commit, check_
         body: {"Timestamp": dateString, "Name": check_name, "Action": status, "Payload": payload}
     };
     eventDatas.push(eventData);
-    await eventhub.sendEventBatch(eventDatas, app);
+    eventhub.sendEventBatch(eventDatas, app).catch(error => {
+        app.log.error(`[ CONFLICT DETECT ] [${uuid}] Failed to send EventHub result: ${error}`);
+    });
     if (check.status/10 >= 30 || check.status/10 < 20){
         app.log.error([`[ CONFLICT DETECT ] [${uuid}] check_create`, util.inspect(check, {depth: null})].join(" "))
     } else {
@@ -221,9 +223,6 @@ function init(app) {
         }
 
         var url, number, commit, base_branch, pr_owner, check_suite
-        var script_branch = await akv.getSecretFromCache("CONFLICT_SCRIPT_BRANCH")
-        var msazure_token = await adoauth.getAdoAadToken()
-
         var param = Array()
         param.push(`FOLDER=conflict`)
         if (payload.issue && payload.action == "created") {
@@ -278,17 +277,24 @@ function init(app) {
         app.log.info([`[ CONFLICT DETECT ] [${uuid}]`, url, number, commit, base_branch, pr_owner, check_suite].join(" "))
         param.push(`UUID=${uuid}`)
         param.push(`REPO=${repo}`)
-        param.push(`GH_TOKEN=${gh_token}`)
-        param.push(`MSAZURE_TOKEN=x-access-token:${msazure_token}`)
-        param.push(`SCRIPT_URL=https://mssonicbld:${gh_token}@raw.githubusercontent.com/Azure/sonic-pipelines-internal/${script_branch}/azure-pipelines/ms_conflict_detect.sh`)
         param.push(`PR_NUMBER=${number}`)
         param.push(`PR_URL=${url}`)
         param.push(`PR_OWNER=${pr_owner}`)
         param.push(`PR_BASE_BRANCH=${base_branch}`)
         param.push(`PR_HEAD_COMMIT=${commit}`)
-        param.push(`GITHUB_COPILOT_TOKEN=${await akv.getSecretFromCache("GITHUB_COPILOT_TOKEN") || ''}`)
 
-        actionQueue.enqueueBashAction(param, `conflict detect ${repo}#${number}`, app, async run => {
+        actionQueue.enqueueBashAction(async () => {
+            const queued_gh_token = await akv.getGithubToken()
+            const script_branch = await akv.getSecretFromCache("CONFLICT_SCRIPT_BRANCH")
+            const msazure_token = await adoauth.getAdoAadToken()
+            const copilot_token = await akv.getSecretFromCache("GITHUB_COPILOT_TOKEN") || ''
+            return param.concat([
+                `GH_TOKEN=${queued_gh_token}`,
+                `MSAZURE_TOKEN=x-access-token:${msazure_token}`,
+                `SCRIPT_URL=https://mssonicbld:${queued_gh_token}@raw.githubusercontent.com/Azure/sonic-pipelines-internal/${script_branch}/azure-pipelines/ms_conflict_detect.sh`,
+                `GITHUB_COPILOT_TOKEN=${copilot_token}`,
+            ])
+        }, `conflict detect ${repo}#${number}`, app, async run => {
             // If it belongs to ms, comment on PR.
             var description = '', comment_at = '', mspr = '', tmp = '', ms_conflict_result = '', ms_checker_result = '', conflict_ai_result = '', conflict_ai_description = '', output = ''
             for (const line of run.stdout.split(/\r?\n/)){

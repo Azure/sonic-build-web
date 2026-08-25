@@ -26,16 +26,11 @@ function init(app) {
             }
         }
 
-        let gh_token = await akv.getGithubToken()
-        let script_url = await akv.getSecretFromCache("AUTO_CHERRYPICK_SCRIPT_URL")
-
         var param = Array()
         param.push(`FOLDER=cherrypick`)
         param.push(`ACTION=${payload.action}`)
         param.push(`REPO=${repo}`)
         param.push(`ORG=${org}`)
-        param.push(`GH_TOKEN=${gh_token}`)
-        param.push(`SCRIPT_URL=${script_url}`)
         param.push(`PR_NUMBER=${payload.number.toString()}`)
         param.push(`PR_URL=${payload.pull_request.html_url}`)
         param.push(`PR_OWNER=${payload.pull_request.user.login}`)
@@ -55,7 +50,14 @@ function init(app) {
 
         app.log.info(["[ AUTO CHERRY PICK ]"].concat(param).join(" "))
 
-        actionQueue.enqueueBashAction(param, `auto cherry pick ${repo}#${payload.number}`, app, async run => {
+        actionQueue.enqueueBashAction(async () => {
+            const gh_token = await akv.getGithubToken()
+            const script_url = await akv.getSecretFromCache("AUTO_CHERRYPICK_SCRIPT_URL")
+            return param.concat([
+                `GH_TOKEN=${gh_token}`,
+                `SCRIPT_URL=${script_url}`,
+            ])
+        }, `auto cherry pick ${repo}#${payload.number}`, app, async run => {
             if (run.status != 0){
                 app.log.error(`[ AUTO CHERRY PICK ] Unexpected error! path: ${repo}/${run.output}`)
                 return

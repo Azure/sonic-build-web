@@ -42,4 +42,21 @@ describe("ActionQueue", () => {
         await succeeded;
         expect(order).toEqual(["failed", "succeeded"]);
     });
+
+    test("rejects actions when the pending limit is reached", async () => {
+        const queue = new ActionQueue(1, 1);
+        let release;
+        const blocker = new Promise(resolve => {
+            release = resolve;
+        });
+
+        const running = queue.enqueue(() => blocker);
+        const pending = queue.enqueue(async () => {});
+
+        expect(() => queue.enqueue(async () => {}))
+            .toThrow("Action queue is full (1 pending)");
+
+        release();
+        await Promise.all([running, pending]);
+    });
 });
