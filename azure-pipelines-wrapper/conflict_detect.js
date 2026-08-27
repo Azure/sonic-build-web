@@ -1,6 +1,5 @@
 const { Octokit } = require('@octokit/rest');
 const util = require('util');
-const { setTimeout } = require('timers/promises');
 const actionQueue = require('./action_queue');
 const eventhub = require('./eventhub');
 const akv = require('./keyvault');
@@ -13,6 +12,86 @@ const { v4: uuidv4 } = require('uuid');
 const COMPLETED = 'completed'
 const FAILURE = 'failure'
 const SUCCESS = 'success'
+const AUTO_COMMENT_DELAY_MS = 10000
+const AUTO_COMMENT_RETRY_DELAY_MS = 1000
+const pending_auto_comments = new Map()
+
+function delay(ms) {
+    return new Promise(resolve => global.setTimeout(resolve, ms))
+}
+
+async function get_current_pull_request(octokit, params, app, label) {
+    try {
+        return await octokit.rest.pulls.get(params)
+    } catch (error) {
+        app.log.error(`[ AUTO COMMENT ] Failed to refresh ${label}, retrying: ${error}`)
+        await delay(AUTO_COMMENT_RETRY_DELAY_MS)
+        return octokit.rest.pulls.get(params)
+    }
+}
+
+async function post_validation_comment(app, owner, repo, issue_number, body, expected_head_sha) {
+    const gh_token = await akv.getGithubToken()
+    const octokit = new Octokit({
+        auth: gh_token,
+    })
+    const label = `${repo}#${issue_number}`
+    const pull_request_params = {
+        owner,
+        repo,
+        pull_number: issue_number,
+    }
+    const current_pull_request = await get_current_pull_request(
+        octokit,
+        pull_request_params,
+        app,
+        label
+    )
+    if (current_pull_request.data.state !== 'open') {
+        app.log.info(
+            `[ AUTO COMMENT ] Skip ${label}: PR is ${current_pull_request.data.state}`
+        )
+        return
+    }
+    if (current_pull_request.data.head.sha !== expected_head_sha) {
+        app.log.info(
+            `[ AUTO COMMENT ] Skip stale event for ${label}: ` +
+            `expected ${expected_head_sha}, current ${current_pull_request.data.head.sha}`
+        )
+        return
+    }
+    const response = await octokit.rest.issues.createComment({
+        owner,
+        repo,
+        issue_number,
+        body,
+    })
+    app.log.info(`[ AUTO COMMENT ] Comment created: ${response.data}`)
+}
+
+function schedule_validation_comment(app, owner, repo, issue_number, body, expected_head_sha) {
+    const key = `${owner}/${repo}#${issue_number}@${expected_head_sha}`
+    if (pending_auto_comments.has(key)) {
+        app.log.info(`[ AUTO COMMENT ] Already scheduled ${key}`)
+        return
+    }
+
+    const timer = global.setTimeout(() => {
+        post_validation_comment(
+            app,
+            owner,
+            repo,
+            issue_number,
+            body,
+            expected_head_sha
+        ).catch(error => {
+            app.log.error(`[ AUTO COMMENT ] Comment error: ${error}`)
+        }).finally(() => {
+            pending_auto_comments.delete(key)
+        })
+    }, AUTO_COMMENT_DELAY_MS)
+    pending_auto_comments.set(key, timer)
+}
 
 async function is_msft_user(octokit, username) {
     // Check Microsoft GitHub org membership using the bot token
@@ -189,33 +268,26 @@ function init(app) {
         var full_name = payload.repository.full_name
         var owner = full_name.split('/')[0]
         var repo = full_name.split('/')[1]
-        var gh_token = await akv.getGithubToken()
         // comment to start PR validation.
         if (payload.pull_request) {
             var body = ''
             var issue_number = payload.number.toString()
             var pr_owner = payload.pull_request.user.login
+            const expected_head_sha = payload.pull_request.head.sha
             if ("sonic-net/sonic-buildimage" != full_name) {
                 body='/azp run'
             } else {
                 body='/azp run Azure.sonic-buildimage'
             }
             app.log.info(`[ AUTO COMMENT ] repo: ${repo}, PR: ${issue_number}, body: ${body}`)
-            const sonicbld_octokit = new Octokit({
-                auth: gh_token,
-            });
-            try {
-                await setTimeout(10000)
-                const response  = await sonicbld_octokit.rest.issues.createComment({
-                    owner,
-                    repo,
-                    issue_number,
-                    body,
-                });
-                app.log.info(`[ AUTO COMMENT ] Comment created: ${response.data}`)
-            } catch(error) {
-                app.log.error(`[ AUTO COMMENT ] Comment error: ${error}`)
-            }
+            schedule_validation_comment(
+                app,
+                owner,
+                repo,
+                issue_number,
+                body,
+                expected_head_sha
+            )
         }
         if ("sonic-net/sonic-buildimage" != full_name) {
             app.log.info(`[ CONFLICT DETECT ] [${uuid}] repo not match!`)
