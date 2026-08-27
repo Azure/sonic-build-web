@@ -205,7 +205,7 @@ function init(app) {
                 auth: gh_token,
             });
             try {
-                await setTimeout(5000)
+                await setTimeout(10000)
                 const response  = await sonicbld_octokit.rest.issues.createComment({
                     owner,
                     repo,
