@@ -12,14 +12,9 @@ const { v4: uuidv4 } = require('uuid');
 const COMPLETED = 'completed'
 const FAILURE = 'failure'
 const SUCCESS = 'success'
-const AUTO_COMMENT_DELAY_MS = 10000
+const AUTO_COMMENT_DELAY_MS = 15000
 const AUTO_COMMENT_RETRY_DELAY_MS = 1000
-const STALE_COMMENT_RETRY_DELAY_MS = 15000
-const SENT_AUTO_COMMENT_TTL_MS = 5 * 60 * 1000
-const AZURE_PIPELINES_STALE_MESSAGE =
-    'pull request was updated after the run command was issued'
 const pending_auto_comments = new Map()
-const sent_auto_comments = new Map()
 
 function delay(ms) {
     return new Promise(resolve => global.setTimeout(resolve, ms))
@@ -35,73 +30,7 @@ async function get_current_pull_request(octokit, params, app, label) {
     }
 }
 
-function auto_comment_label(owner, repo, issue_number) {
-    return `${owner}/${repo}#${issue_number}`
-}
-
-function remember_sent_auto_comment(label, comment) {
-    const now = Date.now()
-    for (const [key, value] of sent_auto_comments) {
-        if (now - value.sent_at >= SENT_AUTO_COMMENT_TTL_MS) {
-            sent_auto_comments.delete(key)
-        }
-    }
-    const previous = sent_auto_comments.get(label)
-    const same_revision = previous &&
-        previous.expected_head_sha === comment.expected_head_sha &&
-        previous.expected_base_sha === comment.expected_base_sha
-    sent_auto_comments.set(label, {
-        ...comment,
-        retry_used: comment.is_retry ||
-            Boolean(same_revision && previous.retry_used),
-        retry_scheduled: Boolean(!comment.is_retry &&
-            same_revision &&
-            previous.retry_scheduled),
-        sent_at: now,
-    })
-}
-
-function is_conflicting(pull_request) {
-    return pull_request.data.mergeable === false ||
-        pull_request.data.mergeable_state === 'dirty'
-}
-
-async function validation_started_after(
-    octokit,
-    owner,
-    repo,
-    head_sha,
-    started_after
-) {
-    const params = {
-        owner,
-        repo,
-        ref: head_sha,
-        per_page: 100,
-    }
-    const response = await octokit.rest.checks.listForRef(params)
-    const retry_time = Date.parse(started_after)
-    return response.data.check_runs.some(check => {
-        const started_at = Date.parse(check.started_at)
-        return check.app &&
-            check.app.slug === 'azure-pipelines' &&
-            check.conclusion !== 'action_required' &&
-            Number.isFinite(started_at) &&
-            started_at >= retry_time
-    })
-}
-
-async function post_validation_comment(
-    app,
-    owner,
-    repo,
-    issue_number,
-    body,
-    expected_head_sha,
-    expected_base_sha,
-    is_retry,
-    retry_started_after
-) {
+async function post_validation_comment(app, owner, repo, issue_number, body, expected_head_sha) {
     const gh_token = await akv.getGithubToken()
     const octokit = new Octokit({
         auth: gh_token,
@@ -131,59 +60,17 @@ async function post_validation_comment(
         )
         return
     }
-    if (expected_base_sha &&
-        current_pull_request.data.base &&
-        current_pull_request.data.base.sha !== expected_base_sha) {
-        app.log.info(
-            `[ AUTO COMMENT ] Skip stale base for ${label}: ` +
-            `expected ${expected_base_sha}, current ${current_pull_request.data.base.sha}`
-        )
-        return
-    }
-    if (is_conflicting(current_pull_request)) {
-        app.log.info(`[ AUTO COMMENT ] Skip ${label}: PR has merge conflicts`)
-        return
-    }
-    if (is_retry && await validation_started_after(
-        octokit,
-        owner,
-        repo,
-        expected_head_sha,
-        retry_started_after
-    )) {
-        app.log.info(`[ AUTO COMMENT ] Skip retry for ${label}: validation already started`)
-        return
-    }
     const response = await octokit.rest.issues.createComment({
         owner,
         repo,
         issue_number,
         body,
     })
-    remember_sent_auto_comment(auto_comment_label(owner, repo, issue_number), {
-        body,
-        expected_head_sha,
-        expected_base_sha,
-        is_retry,
-    })
     app.log.info(`[ AUTO COMMENT ] Comment created: ${response.data}`)
 }
 
-function schedule_validation_comment(
-    app,
-    owner,
-    repo,
-    issue_number,
-    body,
-    expected_head_sha,
-    expected_base_sha,
-    delay_ms = AUTO_COMMENT_DELAY_MS,
-    is_retry = false,
-    retry_started_after = null
-) {
-    const attempt = is_retry ? 'retry' : 'initial'
-    const key = `${auto_comment_label(owner, repo, issue_number)}` +
-        `@${expected_head_sha}:${expected_base_sha}:${attempt}`
+function schedule_validation_comment(app, owner, repo, issue_number, body, expected_head_sha) {
+    const key = `${owner}/${repo}#${issue_number}@${expected_head_sha}`
     if (pending_auto_comments.has(key)) {
         app.log.info(`[ AUTO COMMENT ] Already scheduled ${key}`)
         return
@@ -196,57 +83,14 @@ function schedule_validation_comment(
             repo,
             issue_number,
             body,
-            expected_head_sha,
-            expected_base_sha,
-            is_retry,
-            retry_started_after
+            expected_head_sha
         ).catch(error => {
             app.log.error(`[ AUTO COMMENT ] Comment error: ${error}`)
         }).finally(() => {
             pending_auto_comments.delete(key)
         })
-    }, delay_ms)
+    }, AUTO_COMMENT_DELAY_MS)
     pending_auto_comments.set(key, timer)
-}
-
-function is_azure_pipelines_stale_comment(payload) {
-    if (!payload.comment || !payload.comment.user) {
-        return false
-    }
-    const login = payload.comment.user.login
-    return (login === 'azure-pipelines' || login === 'azure-pipelines[bot]') &&
-        payload.comment.body.toLowerCase().includes(AZURE_PIPELINES_STALE_MESSAGE)
-}
-
-function schedule_stale_comment_retry(app, owner, repo, payload) {
-    const issue_number = payload.issue.number.toString()
-    const label = auto_comment_label(owner, repo, issue_number)
-    const sent_comment = sent_auto_comments.get(label)
-    if (!sent_comment ||
-        Date.now() - sent_comment.sent_at >= SENT_AUTO_COMMENT_TTL_MS) {
-        sent_auto_comments.delete(label)
-        app.log.info(`[ AUTO COMMENT ] Skip stale retry for ${label}: no matching auto comment`)
-        return
-    }
-    if (sent_comment.retry_used || sent_comment.retry_scheduled) {
-        app.log.info(`[ AUTO COMMENT ] Skip stale retry for ${label}: retry already used`)
-        return
-    }
-
-    sent_comment.retry_scheduled = true
-    schedule_validation_comment(
-        app,
-        owner,
-        repo,
-        issue_number,
-        sent_comment.body,
-        sent_comment.expected_head_sha,
-        sent_comment.expected_base_sha,
-        STALE_COMMENT_RETRY_DELAY_MS,
-        true,
-        payload.comment.created_at
-    )
-    app.log.info(`[ AUTO COMMENT ] Scheduled stale retry for ${label}`)
 }
 
 async function is_msft_user(octokit, username) {
@@ -424,20 +268,12 @@ function init(app) {
         var full_name = payload.repository.full_name
         var owner = full_name.split('/')[0]
         var repo = full_name.split('/')[1]
-        if (payload.issue &&
-            payload.issue.pull_request &&
-            payload.action == "created" &&
-            is_azure_pipelines_stale_comment(payload)) {
-            schedule_stale_comment_retry(app, owner, repo, payload)
-            return
-        }
         // comment to start PR validation.
         if (payload.pull_request) {
             var body = ''
             var issue_number = payload.number.toString()
             var pr_owner = payload.pull_request.user.login
             const expected_head_sha = payload.pull_request.head.sha
-            const expected_base_sha = payload.pull_request.base.sha
             if ("sonic-net/sonic-buildimage" != full_name) {
                 body='/azp run'
             } else {
@@ -450,8 +286,7 @@ function init(app) {
                 repo,
                 issue_number,
                 body,
-                expected_head_sha,
-                expected_base_sha
+                expected_head_sha
             )
         }
         if ("sonic-net/sonic-buildimage" != full_name) {
