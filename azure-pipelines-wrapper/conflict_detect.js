@@ -12,7 +12,6 @@ const { v4: uuidv4 } = require('uuid');
 const COMPLETED = 'completed'
 const FAILURE = 'failure'
 const SUCCESS = 'success'
-const ACTION_REQUIRED = 'action_required'
 const AUTO_COMMENT_DELAY_MS = 10000
 const AUTO_COMMENT_RETRY_DELAY_MS = 1000
 const pending_auto_comments = new Map()
@@ -438,10 +437,7 @@ function init(app) {
                 app.log.info([`[ CONFLICT DETECT ] [${uuid}] Exit: 0`, url].join(" "))
                 description = `${SUCCESS}<br>${mspr}`
             }
-            const check_result = [253, 254].includes(run.status)
-                ? ACTION_REQUIRED
-                : ms_conflict_result
-            await check_create(app, context, uuid, owner, repo, url, commit, MsConflict, check_result, COMPLETED, "MS conflict detect", `${check_result}: ${description}`)
+            await check_create(app, context, uuid, owner, repo, url, commit, MsConflict, ms_conflict_result, COMPLETED, "MS conflict detect", `${ms_conflict_result}: ${description}`)
         }
         if ( ['ALL',MsChecker].includes(check_suite) ) {
             description = `inprogress: ${mspr}`

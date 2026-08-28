@@ -1,12 +1,7 @@
 const mockGetPullRequest = jest.fn()
 const mockCreateComment = jest.fn()
-const mockCreateCheck = jest.fn()
-const mockCheckMembership = jest.fn()
 const mockGetGithubToken = jest.fn()
-const mockGetSecret = jest.fn()
-const mockGetAdoToken = jest.fn()
 const mockEnqueueBashAction = jest.fn()
-const mockSendEventBatch = jest.fn()
 
 jest.mock("@octokit/rest", () => ({
     Octokit: jest.fn(() => ({
@@ -27,15 +22,12 @@ jest.mock("../action_queue", () => ({
     enqueueBashAction: mockEnqueueBashAction,
 }))
 jest.mock("../eventhub", () => ({
-    sendEventBatch: mockSendEventBatch,
+    sendEventBatch: jest.fn(),
 }))
 jest.mock("../keyvault", () => ({
     getGithubToken: mockGetGithubToken,
-    getSecretFromCache: mockGetSecret,
 }))
-jest.mock("../adoauth", () => ({
-    getAdoAadToken: mockGetAdoToken,
-}))
+jest.mock("../adoauth", () => ({}))
 
 const conflictDetect = require("../conflict_detect")
 
@@ -59,41 +51,6 @@ function createContext(number, sha = "expected-sha") {
     }
 }
 
-function createConflictContext(number) {
-    return {
-        payload: {
-            action: "synchronize",
-            number,
-            repository: {
-                full_name: "sonic-net/sonic-buildimage",
-            },
-            pull_request: {
-                title: "Test pull request",
-                html_url: `https://github.com/sonic-net/sonic-buildimage/pull/${number}`,
-                head: {
-                    sha: "expected-sha",
-                },
-                base: {
-                    ref: "master",
-                },
-                user: {
-                    login: "contributor",
-                },
-            },
-        },
-        octokit: {
-            rest: {
-                checks: {
-                    create: mockCreateCheck,
-                },
-                orgs: {
-                    checkMembershipForUser: mockCheckMembership,
-                },
-            },
-        },
-    }
-}
-
 async function flushPromises() {
     for (let i = 0; i < 10; i += 1) {
         await Promise.resolve()
@@ -107,15 +64,8 @@ describe("pull request validation comments", () => {
     beforeEach(() => {
         jest.useFakeTimers()
         jest.clearAllMocks()
-        mockEnqueueBashAction.mockReset()
         mockGetGithubToken.mockResolvedValue("github-token")
-        mockGetSecret.mockResolvedValue("secret")
-        mockGetAdoToken.mockResolvedValue("ado-token")
         mockCreateComment.mockResolvedValue({ data: { id: 1 } })
-        mockCreateCheck.mockResolvedValue({ status: 201 })
-        mockCheckMembership.mockResolvedValue({ status: 204 })
-        mockSendEventBatch.mockResolvedValue(undefined)
-        mockEnqueueBashAction.mockResolvedValue(undefined)
         app = {
             log: {
                 info: jest.fn(),
@@ -247,34 +197,5 @@ describe("pull request validation comments", () => {
         expect(app.log.info).toHaveBeenCalledWith(
             expect.stringContaining("PR is closed")
         )
-    })
-
-    test.each([
-        [253, "action_required"],
-        [254, "action_required"],
-        [251, "failure"],
-    ])("maps conflict exit status %i to %s", async (status, conclusion) => {
-        mockEnqueueBashAction.mockImplementation(
-            async (getArgs, label, queuedApp, onComplete) => onComplete({
-                status,
-                stdout: [
-                    "pr_owner: contributor",
-                    "ms_pr: https://dev.azure.com/example/pullrequest/1",
-                    "ms_conflict.result: failure",
-                ].join("\n"),
-            })
-        )
-
-        await handler(createConflictContext(200 + status))
-        await flushPromises()
-
-        const conflictCheck = mockCreateCheck.mock.calls.find(
-            ([params]) => params.name === "ms_conflict"
-        )
-        expect(conflictCheck).toBeDefined()
-        expect(conflictCheck[0]).toEqual(expect.objectContaining({
-            status: "completed",
-            conclusion,
-        }))
     })
 })
