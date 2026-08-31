@@ -1,5 +1,5 @@
-const spawnSync = require('child_process').spawnSync;
 const akv = require('./keyvault');
+const actionQueue = require('./action_queue');
 const repos = ["sonic-net/sonic-utilities", "sonic-net/sonic-swss", "sonic-net/sonic-sairedis", "sonic-net/sonic-swss-common", "sonic-net/sonic-dbsyncd", "sonic-net/sonic-gnmi", "sonic-net/sonic-host-services",
               "sonic-net/sonic-linkmgrd", "sonic-net/sonic-linux-kernel", "sonic-net/sonic-mgmt-common", "sonic-net/sonic-mgmt-framework", "sonic-net/sonic-platform-common", "sonic-net/sonic-platform-daemons",
               "sonic-net/sonic-py-swsssdk", "sonic-net/sonic-restapi", "sonic-net/sonic-snmpagent", "sonic-net/sonic-wpa-supplicant", "sonic-net/sonic-buildimage", "sonic-net/sonic-ztp", "sonic-net/sonic-dhcp-relay",
@@ -26,16 +26,11 @@ function init(app) {
             }
         }
 
-        let gh_token = await akv.getGithubToken()
-        let script_url = await akv.getSecretFromCache("AUTO_CHERRYPICK_SCRIPT_URL")
-
         var param = Array()
         param.push(`FOLDER=cherrypick`)
         param.push(`ACTION=${payload.action}`)
         param.push(`REPO=${repo}`)
         param.push(`ORG=${org}`)
-        param.push(`GH_TOKEN=${gh_token}`)
-        param.push(`SCRIPT_URL=${script_url}`)
         param.push(`PR_NUMBER=${payload.number.toString()}`)
         param.push(`PR_URL=${payload.pull_request.html_url}`)
         param.push(`PR_OWNER=${payload.pull_request.user.login}`)
@@ -55,12 +50,20 @@ function init(app) {
 
         app.log.info(["[ AUTO CHERRY PICK ]"].concat(param).join(" "))
 
-        var run = spawnSync('./bash_action.sh', param, { encoding: 'utf-8' })
-        if (run.status != 0){
-            app.log.error(`[ AUTO CHERRY PICK ] Unexpected error! path: ${repo}/${run.output}`)
-            return
-        }
-        app.log.info("[ AUTO CHERRY PICK ] finished.")
+        actionQueue.enqueueBashAction(async () => {
+            const gh_token = await akv.getGithubToken()
+            const script_url = await akv.getSecretFromCache("AUTO_CHERRYPICK_SCRIPT_URL")
+            return param.concat([
+                `GH_TOKEN=${gh_token}`,
+                `SCRIPT_URL=${script_url}`,
+            ])
+        }, `auto cherry pick ${repo}#${payload.number}`, app, async run => {
+            if (run.status != 0){
+                app.log.error(`[ AUTO CHERRY PICK ] Unexpected error! path: ${repo}/${run.output}`)
+                return
+            }
+            app.log.info("[ AUTO CHERRY PICK ] finished.")
+        });
     });
 };
 

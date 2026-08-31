@@ -1,15 +1,52 @@
 const { createTokenAuth } = require("@octokit/auth-token");
 const { request } = require("@octokit/request");
 const { Octokit } = require("@octokit/rest");
-const { execSync } = require('child_process');
+const https = require('https');
 require('dotenv').config();
 const azp = require('./azp');
 const akv = require('./keyvault');
 const adoauth = require('./adoauth');
 const check_run = require('./check_run');
+const actionQueue = require('./action_queue');
 const { retry } = require("@azure/core-amqp");
 
 const isDevEnv = process.env.WEBHOOK_PROXY_URL ? true : false;
+
+function adoRequest(method, url, token, body) {
+    return new Promise((resolve, reject) => {
+        const data = body ? JSON.stringify(body) : null;
+        const headers = {
+            "Authorization": `Bearer ${token}`,
+            "Content-Type": "application/json",
+        };
+        if (data) {
+            headers["Content-Length"] = Buffer.byteLength(data);
+        }
+
+        const req = https.request(url, { method, headers }, response => {
+            let responseBody = '';
+            response.setEncoding('utf8');
+            response.on('data', chunk => {
+                responseBody += chunk;
+            });
+            response.on('end', () => {
+                if (response.statusCode < 200 || response.statusCode >= 300) {
+                    reject(new Error(`ADO request failed with ${response.statusCode}: ${responseBody}`));
+                    return;
+                }
+                resolve(responseBody);
+            });
+        });
+        req.setTimeout(60000, () => {
+            req.destroy(new Error("ADO request timed out"));
+        });
+        req.on('error', reject);
+        if (data) {
+            req.write(data);
+        }
+        req.end();
+    });
+}
 
 function init(app) {
     app.log.info("Init issue_comment!");
@@ -17,10 +54,8 @@ function init(app) {
     app.on("issue_comment.created", async (context) => {
         var payload = context.payload;
         if ('pull_request' in payload.issue){
-            issue_user_login = payload.issue.user.login;
-            comment_user_login = payload.comment.user.login;
-            comment_body = payload.comment.body.trim();
-            command = null;
+            let comment_body = payload.comment.body.trim();
+            let command = null;
 
             if (comment_body.toLowerCase().startsWith('/azpw ms_conflict') ){ return };
             console.log(`issue_comment.created, ${payload.comment.id}`);
@@ -60,14 +95,25 @@ function init(app) {
                 const octokit = new Octokit({
                     auth: github_token,
                 });
-                console.log(`Creating issue comment ${command}`);
-                await octokit.rest.issues.createComment({
-                    owner: payload.repository.owner.login,
-                    repo: payload.repository.name,
-                    issue_number: payload.issue.number,
-                    body: command,
-                });
-                await retryFailedBuilds(context);
+                try {
+                    actionQueue.enqueueAction(async () => {
+                        console.log(`Creating issue comment ${command}`);
+                        await octokit.rest.issues.createComment({
+                            owner: payload.repository.owner.login,
+                            repo: payload.repository.name,
+                            issue_number: payload.issue.number,
+                            body: command,
+                        });
+                        await retryFailedBuilds(context);
+                    }, `retry failed builds ${payload.repository.full_name}#${payload.issue.number}`, app);
+                } catch (error) {
+                    await octokit.rest.issues.createComment({
+                        owner: payload.repository.owner.login,
+                        repo: payload.repository.name,
+                        issue_number: payload.issue.number,
+                        body: "Unable to queue the retry because the action queue is full. Please try again later.",
+                    });
+                }
                 return;
             }
         }
@@ -147,8 +193,7 @@ async function retryFailedBuilds(context) {
     var az_token = await adoauth.getAdoAadToken();
 
     var timelineUrl = `https://dev.azure.com/${latestBuild.org}/${latestBuild.projectId}/_apis/build/builds/${latestBuild.buildId}/timeline?api-version=7.1`;
-    var timelineCmd = `curl --silent --show-error --request GET --url "${timelineUrl}" --header "Authorization: Bearer ${az_token}" --header "Content-Type: application/json"`;
-    var timelineOutput = execSync(timelineCmd, { encoding: 'utf-8' });
+    var timelineOutput = await adoRequest("GET", timelineUrl, az_token);
     var timeline;
     try {
         timeline = JSON.parse(timelineOutput);
@@ -221,12 +266,11 @@ async function retryFailedBuilds(context) {
 
     // Retry each failed stage individually
     var summaryLines = [`Retrying failed(or canceled) stages in build ${latestBuild.buildId}:`];
-    var data = JSON.stringify({ state: 1, forceRetryAllJobs: false, retryDependencies: true });
+    var data = { state: 1, forceRetryAllJobs: false, retryDependencies: true };
     for (var stage of failedStages) {
         try {
             var url = `https://dev.azure.com/${latestBuild.org}/${latestBuild.projectId}/_apis/build/builds/${latestBuild.buildId}/stages/${stage.identifier}?api-version=7.1`;
-            var cmd = `curl --silent --show-error --request PATCH --url "${url}" --header "Authorization: Bearer ${az_token}" --header "Content-Type: application/json" --data '${data}'`;
-            var output = execSync(cmd, { encoding: 'utf-8' });
+            var output = await adoRequest("PATCH", url, az_token, data);
             console.log(`Retried stage '${stage.identifier}' in build ${latestBuild.buildId}: ${output}`);
             summaryLines.push(`\n\n✅Stage **${stage.identifier}**:`);
             for (var job of failedJobs.filter(j => j.identifier.startsWith(stage.identifier))) {

@@ -1,7 +1,6 @@
-const spawnSync = require('child_process').spawnSync;
 const { Octokit } = require('@octokit/rest');
 const util = require('util');
-const { setTimeout } = require('timers/promises');
+const actionQueue = require('./action_queue');
 const eventhub = require('./eventhub');
 const akv = require('./keyvault');
 const adoauth = require('./adoauth');
@@ -13,6 +12,86 @@ const { v4: uuidv4 } = require('uuid');
 const COMPLETED = 'completed'
 const FAILURE = 'failure'
 const SUCCESS = 'success'
+const AUTO_COMMENT_DELAY_MS = 15000
+const AUTO_COMMENT_RETRY_DELAY_MS = 1000
+const pending_auto_comments = new Map()
+
+function delay(ms) {
+    return new Promise(resolve => global.setTimeout(resolve, ms))
+}
+
+async function get_current_pull_request(octokit, params, app, label) {
+    try {
+        return await octokit.rest.pulls.get(params)
+    } catch (error) {
+        app.log.error(`[ AUTO COMMENT ] Failed to refresh ${label}, retrying: ${error}`)
+        await delay(AUTO_COMMENT_RETRY_DELAY_MS)
+        return octokit.rest.pulls.get(params)
+    }
+}
+
+async function post_validation_comment(app, owner, repo, issue_number, body, expected_head_sha) {
+    const gh_token = await akv.getGithubToken()
+    const octokit = new Octokit({
+        auth: gh_token,
+    })
+    const label = `${repo}#${issue_number}`
+    const pull_request_params = {
+        owner,
+        repo,
+        pull_number: issue_number,
+    }
+    const current_pull_request = await get_current_pull_request(
+        octokit,
+        pull_request_params,
+        app,
+        label
+    )
+    if (current_pull_request.data.state !== 'open') {
+        app.log.info(
+            `[ AUTO COMMENT ] Skip ${label}: PR is ${current_pull_request.data.state}`
+        )
+        return
+    }
+    if (current_pull_request.data.head.sha !== expected_head_sha) {
+        app.log.info(
+            `[ AUTO COMMENT ] Skip stale event for ${label}: ` +
+            `expected ${expected_head_sha}, current ${current_pull_request.data.head.sha}`
+        )
+        return
+    }
+    const response = await octokit.rest.issues.createComment({
+        owner,
+        repo,
+        issue_number,
+        body,
+    })
+    app.log.info(`[ AUTO COMMENT ] Comment created: ${response.data}`)
+}
+
+function schedule_validation_comment(app, owner, repo, issue_number, body, expected_head_sha) {
+    const key = `${owner}/${repo}#${issue_number}@${expected_head_sha}`
+    if (pending_auto_comments.has(key)) {
+        app.log.info(`[ AUTO COMMENT ] Already scheduled ${key}`)
+        return
+    }
+
+    const timer = global.setTimeout(() => {
+        post_validation_comment(
+            app,
+            owner,
+            repo,
+            issue_number,
+            body,
+            expected_head_sha
+        ).catch(error => {
+            app.log.error(`[ AUTO COMMENT ] Comment error: ${error}`)
+        }).finally(() => {
+            pending_auto_comments.delete(key)
+        })
+    }, AUTO_COMMENT_DELAY_MS)
+    pending_auto_comments.set(key, timer)
+}
 
 async function is_msft_user(octokit, username) {
     // Check Microsoft GitHub org membership using the bot token
@@ -170,7 +249,9 @@ async function check_create(app, context, uuid, owner, repo, url, commit, check_
         body: {"Timestamp": dateString, "Name": check_name, "Action": status, "Payload": payload}
     };
     eventDatas.push(eventData);
-    eventhub.sendEventBatch(eventDatas, app);
+    eventhub.sendEventBatch(eventDatas, app).catch(error => {
+        app.log.error(`[ CONFLICT DETECT ] [${uuid}] Failed to send EventHub result: ${error}`);
+    });
     if (check.status/10 >= 30 || check.status/10 < 20){
         app.log.error([`[ CONFLICT DETECT ] [${uuid}] check_create`, util.inspect(check, {depth: null})].join(" "))
     } else {
@@ -187,33 +268,26 @@ function init(app) {
         var full_name = payload.repository.full_name
         var owner = full_name.split('/')[0]
         var repo = full_name.split('/')[1]
-        var gh_token = await akv.getGithubToken()
         // comment to start PR validation.
         if (payload.pull_request) {
             var body = ''
             var issue_number = payload.number.toString()
             var pr_owner = payload.pull_request.user.login
+            const expected_head_sha = payload.pull_request.head.sha
             if ("sonic-net/sonic-buildimage" != full_name) {
                 body='/azp run'
             } else {
                 body='/azp run Azure.sonic-buildimage'
             }
             app.log.info(`[ AUTO COMMENT ] repo: ${repo}, PR: ${issue_number}, body: ${body}`)
-            const sonicbld_octokit = new Octokit({
-                auth: gh_token,
-            });
-            try {
-                await setTimeout(5000)
-                const response  = await sonicbld_octokit.rest.issues.createComment({
-                    owner,
-                    repo,
-                    issue_number,
-                    body,
-                });
-                app.log.info(`[ AUTO COMMENT ] Comment created: ${response.data}`)
-            } catch(error) {
-                app.log.error(`[ AUTO COMMENT ] Comment error: ${error}`)
-            }
+            schedule_validation_comment(
+                app,
+                owner,
+                repo,
+                issue_number,
+                body,
+                expected_head_sha
+            )
         }
         if ("sonic-net/sonic-buildimage" != full_name) {
             app.log.info(`[ CONFLICT DETECT ] [${uuid}] repo not match!`)
@@ -221,9 +295,6 @@ function init(app) {
         }
 
         var url, number, commit, base_branch, pr_owner, check_suite
-        var script_branch = await akv.getSecretFromCache("CONFLICT_SCRIPT_BRANCH")
-        var msazure_token = await adoauth.getAdoAadToken()
-
         var param = Array()
         param.push(`FOLDER=conflict`)
         if (payload.issue && payload.action == "created") {
@@ -278,20 +349,27 @@ function init(app) {
         app.log.info([`[ CONFLICT DETECT ] [${uuid}]`, url, number, commit, base_branch, pr_owner, check_suite].join(" "))
         param.push(`UUID=${uuid}`)
         param.push(`REPO=${repo}`)
-        param.push(`GH_TOKEN=${gh_token}`)
-        param.push(`MSAZURE_TOKEN=x-access-token:${msazure_token}`)
-        param.push(`SCRIPT_URL=https://mssonicbld:${gh_token}@raw.githubusercontent.com/Azure/sonic-pipelines-internal/${script_branch}/azure-pipelines/ms_conflict_detect.sh`)
         param.push(`PR_NUMBER=${number}`)
         param.push(`PR_URL=${url}`)
         param.push(`PR_OWNER=${pr_owner}`)
         param.push(`PR_BASE_BRANCH=${base_branch}`)
         param.push(`PR_HEAD_COMMIT=${commit}`)
-        param.push(`GITHUB_COPILOT_TOKEN=${await akv.getSecretFromCache("GITHUB_COPILOT_TOKEN") || ''}`)
 
-        // If it belongs to ms, comment on PR.
-        var description = '', comment_at = '', mspr = '', tmp = '', ms_conflict_result = '', ms_checker_result = '', conflict_ai_result = '', conflict_ai_description = '', output = ''
-        var run = spawnSync('./bash_action.sh', param, { encoding: 'utf-8' })
-        for (const line of run.stdout.split(/\r?\n/)){
+        actionQueue.enqueueBashAction(async () => {
+            const queued_gh_token = await akv.getGithubToken()
+            const script_branch = await akv.getSecretFromCache("CONFLICT_SCRIPT_BRANCH")
+            const msazure_token = await adoauth.getAdoAadToken()
+            const copilot_token = await akv.getSecretFromCache("GITHUB_COPILOT_TOKEN") || ''
+            return param.concat([
+                `GH_TOKEN=${queued_gh_token}`,
+                `MSAZURE_TOKEN=x-access-token:${msazure_token}`,
+                `SCRIPT_URL=https://mssonicbld:${queued_gh_token}@raw.githubusercontent.com/Azure/sonic-pipelines-internal/${script_branch}/azure-pipelines/ms_conflict_detect.sh`,
+                `GITHUB_COPILOT_TOKEN=${copilot_token}`,
+            ])
+        }, `conflict detect ${repo}#${number}`, app, async run => {
+            // If it belongs to ms, comment on PR.
+            var description = '', comment_at = '', mspr = '', tmp = '', ms_conflict_result = '', ms_checker_result = '', conflict_ai_result = '', conflict_ai_description = '', output = ''
+            for (const line of run.stdout.split(/\r?\n/)){
             output = line
             if (line.includes("pr_owner: ")){
                 comment_at = line.split(' ').pop()
@@ -359,14 +437,15 @@ function init(app) {
                 app.log.info([`[ CONFLICT DETECT ] [${uuid}] Exit: 0`, url].join(" "))
                 description = `${SUCCESS}<br>${mspr}`
             }
-            check_create(app, context, uuid, owner, repo, url, commit, MsConflict, ms_conflict_result, COMPLETED, "MS conflict detect", `${ms_conflict_result}: ${description}`)
+            await check_create(app, context, uuid, owner, repo, url, commit, MsConflict, ms_conflict_result, COMPLETED, "MS conflict detect", `${ms_conflict_result}: ${description}`)
         }
         if ( ['ALL',MsChecker].includes(check_suite) ) {
             description = `inprogress: ${mspr}`
-            check_create(app, context, uuid, owner, repo, url, commit, MsChecker, SUCCESS, COMPLETED, "MS PR validation", description)
+            await check_create(app, context, uuid, owner, repo, url, commit, MsChecker, SUCCESS, COMPLETED, "MS PR validation", description)
             //  check_create(app, context, uuid, owner, repo, url, commit, MsChecker, null, InProgress, "MS PR validation", description)
         }
-        app.log.error(`[ CONFLICT DETECT ] [${uuid}] Exit Code: ${run.status}`)
+            app.log.error(`[ CONFLICT DETECT ] [${uuid}] Exit Code: ${run.status}`)
+        });
     });
 };
 
