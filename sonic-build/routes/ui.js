@@ -5,6 +5,7 @@ const request = utils.request;
 const constants = require('./constants');
 const kusto = require('./kusto');
 const util = require('util');
+const GetArtifactItems = require('./artifact-items');
 
 const navigator_pipelines = [{name:'Pipelines', href:'/ui/sonic/Pipelines'}];
 
@@ -14,27 +15,6 @@ const artifactUrlFormat = "https://dev.azure.com/mssonic/build/_apis/build/build
 
 const query_sonicimagebuilds = 'GetSonicImageBuilds() | project Sequence=row_number(), DefinitionId, DefinitionName, Platform, SourceBranch'
 const query_sonicbuilds = 'GetSonicBuilds() | project Sequence=row_number(), DefinitionId, DefinitionName, Platform, SourceBranch'
-
-function GetArtifactItems(items){
-  var results = [];
-  if (items == null){
-    return results;
-  }
-  for(var i= 0; i < items.length; i++){
-    var item = items[i];
-    if (item.name.startsWith("/target/versions")
-     || item.name.startsWith('/target/baseimage')){
-      continue;
-    }
-
-    results.push(item);
-    var itemResults = GetArtifactItems(item.items);
-    item['items'] = null;
-    results.push(...itemResults);
-  }
-
-  return results;
-}
 
 function GetArtifacts(artifacts){
     for(var item in artifacts.item);
