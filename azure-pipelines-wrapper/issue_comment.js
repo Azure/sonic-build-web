@@ -11,6 +11,34 @@ const actionQueue = require('./action_queue');
 const { retry } = require("@azure/core-amqp");
 
 const isDevEnv = process.env.WEBHOOK_PROXY_URL ? true : false;
+const retryPermissions = new Set(["admin", "maintain", "push", "write"]);
+
+async function canRetryBuilds(context, app) {
+    const payload = context.payload;
+    const username = payload.comment.user && payload.comment.user.login;
+    if (!username) {
+        app.log.error("[ ISSUE COMMENT ] Cannot authorize retry command without a comment author");
+        return false;
+    }
+
+    try {
+        const response = await context.octokit.rest.repos.getCollaboratorPermissionLevel({
+            owner: payload.repository.owner.login,
+            repo: payload.repository.name,
+            username: username,
+        });
+        const permission = response.data.permission;
+        if (retryPermissions.has(permission)) {
+            return true;
+        }
+
+        app.log.info(`[ ISSUE COMMENT ] Denied retry command from ${username} with ${permission || "unknown"} permission`);
+        return false;
+    } catch (error) {
+        app.log.error(`[ ISSUE COMMENT ] Failed to authorize retry command from ${username}: ${error}`);
+        return false;
+    }
+}
 
 function adoRequest(method, url, token, body) {
     return new Promise((resolve, reject) => {
@@ -91,6 +119,16 @@ function init(app) {
             }
 
             if (command){
+                if (!await canRetryBuilds(context, app)) {
+                    await context.octokit.rest.issues.createComment({
+                        owner: payload.repository.owner.login,
+                        repo: payload.repository.name,
+                        issue_number: payload.issue.number,
+                        body: "You are not authorized to retry Azure Pipelines jobs for this repository.",
+                    });
+                    return;
+                }
+
                 var github_token = await akv.getGithubToken();
                 const octokit = new Octokit({
                     auth: github_token,

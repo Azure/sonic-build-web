@@ -1,5 +1,8 @@
 const mockCreateComment = jest.fn();
+const mockContextCreateComment = jest.fn();
 const mockEnqueueAction = jest.fn();
+const mockGetCollaboratorPermissionLevel = jest.fn();
+const mockGetGithubToken = jest.fn().mockResolvedValue("github-token");
 
 jest.mock("@octokit/auth-token", () => ({ createTokenAuth: jest.fn() }));
 jest.mock("@octokit/request", () => ({ request: jest.fn() }));
@@ -15,7 +18,7 @@ jest.mock("@octokit/rest", () => ({
 jest.mock("@azure/core-amqp", () => ({ retry: jest.fn() }));
 jest.mock("../azp", () => ({}));
 jest.mock("../keyvault", () => ({
-    getGithubToken: jest.fn().mockResolvedValue("github-token"),
+    getGithubToken: mockGetGithubToken,
 }));
 jest.mock("../adoauth", () => ({}));
 jest.mock("../check_run", () => ({}));
@@ -41,6 +44,9 @@ describe("issue comment retry queue", () => {
             comment: {
                 body: "/azpw retry",
                 id: 1,
+                user: {
+                    login: "maintainer",
+                },
             },
             issue: {
                 number: 42,
@@ -54,10 +60,26 @@ describe("issue comment retry queue", () => {
                 },
             },
         },
+        octokit: {
+            rest: {
+                repos: {
+                    getCollaboratorPermissionLevel: mockGetCollaboratorPermissionLevel,
+                },
+                issues: {
+                    createComment: mockContextCreateComment,
+                },
+            },
+        },
     };
 
     beforeEach(() => {
         jest.clearAllMocks();
+        context.payload.comment.body = "/azpw retry";
+        mockGetCollaboratorPermissionLevel.mockResolvedValue({
+            data: {
+                permission: "push",
+            },
+        });
         issueComment.init(app);
     });
 
@@ -80,5 +102,64 @@ describe("issue comment retry queue", () => {
 
         expect(mockEnqueueAction).toHaveBeenCalledTimes(1);
         expect(mockCreateComment).not.toHaveBeenCalled();
+    });
+
+    test.each(["write", "push", "maintain", "admin"])(
+        "allows a commenter with %s permission to queue a retry",
+        async (permission) => {
+            mockEnqueueAction.mockReturnValue(Promise.resolve());
+            mockGetCollaboratorPermissionLevel.mockResolvedValue({
+                data: {
+                    permission: permission,
+                },
+            });
+
+            await handler(context);
+
+            expect(mockEnqueueAction).toHaveBeenCalledTimes(1);
+        }
+    );
+
+    test.each([
+        ["/azpw retry", "read"],
+        ["/azpw run", "triage"],
+        ["/azurepipelineswrapper retry", "none"],
+        ["/azurepipelineswrapper run", "unknown"],
+    ])("denies %s from a commenter with %s permission", async (command, permission) => {
+        context.payload.comment.body = command;
+        mockGetCollaboratorPermissionLevel.mockResolvedValue({
+            data: {
+                permission: permission,
+            },
+        });
+
+        await handler(context);
+
+        expect(mockGetGithubToken).not.toHaveBeenCalled();
+        expect(mockEnqueueAction).not.toHaveBeenCalled();
+        expect(mockCreateComment).not.toHaveBeenCalled();
+        expect(mockContextCreateComment).toHaveBeenCalledWith({
+            owner: "sonic-net",
+            repo: "sonic-buildimage",
+            issue_number: 42,
+            body: "You are not authorized to retry Azure Pipelines jobs for this repository.",
+        });
+    });
+
+    test("denies a retry when the commenter permission lookup fails", async () => {
+        mockGetCollaboratorPermissionLevel.mockRejectedValue(new Error("GitHub unavailable"));
+
+        await handler(context);
+
+        expect(app.log.error).toHaveBeenCalledTimes(1);
+        expect(mockGetGithubToken).not.toHaveBeenCalled();
+        expect(mockEnqueueAction).not.toHaveBeenCalled();
+        expect(mockCreateComment).not.toHaveBeenCalled();
+        expect(mockContextCreateComment).toHaveBeenCalledWith({
+            owner: "sonic-net",
+            repo: "sonic-buildimage",
+            issue_number: 42,
+            body: "You are not authorized to retry Azure Pipelines jobs for this repository.",
+        });
     });
 });
