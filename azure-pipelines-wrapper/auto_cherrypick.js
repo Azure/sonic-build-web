@@ -30,13 +30,36 @@ function init(app) {
         actionQueue.enqueueAction(async () => {
             const gh_token = await akv.getGithubToken()
             let currentLabels = payload.pull_request.labels
+            const approvalPattern = /^Approved for ((?:msft-)?\d{6}) Branch$/i
             const requestPattern = /^Request for ((?:msft-)?\d{6}) Branch$/i
-            if (payload.action == 'synchronize' ||
+            const approval = payload.action == 'labeled' && payload.label.name.match(approvalPattern)
+            if (payload.action == 'synchronize' || approval ||
                 (payload.action == 'labeled' && requestPattern.test(payload.label.name))) {
                 const octokit = new Octokit({ auth: gh_token })
                 currentLabels = await octokit.paginate(octokit.rest.issues.listLabelsOnIssue, {
                     owner: org, repo, issue_number: payload.number, per_page: 100,
                 })
+                const names = new Set(currentLabels.map(label => label.name.toLowerCase()))
+                if (approval) {
+                    if (!names.has(payload.label.name.toLowerCase())) {
+                        app.log.info("[ AUTO CHERRY PICK ] Skip stale approval-label event")
+                        return
+                    }
+                    if (!names.has(`request for ${approval[1]} branch`.toLowerCase())) {
+                        await octokit.rest.issues.removeLabel({
+                            owner: org, repo, issue_number: payload.number, name: payload.label.name,
+                        })
+                        await octokit.rest.issues.createComment({
+                            owner: org, repo, issue_number: payload.number,
+                            body: `Removed \`${payload.label.name}\` because the matching \`Request for ${approval[1].toLowerCase()} Branch\` label and \`Tested for ${approval[1].toLowerCase()} Branch\` label are missing. Please ensure the matching request label is present before adding the approval again.\n\n<div align="right"><sub>---Powered by SONiC BuildBot</sub></div>`,
+                        })
+                        app.log.info(`[ AUTO CHERRY PICK ] Removed ${payload.label.name} and skipped cherry-pick: matching request label is missing`)
+                        return
+                    }
+                }
+            }
+            if (payload.action == 'synchronize' ||
+                (payload.action == 'labeled' && requestPattern.test(payload.label.name))) {
                 const names = new Set(currentLabels.map(label => label.name.toLowerCase()))
                 const hasTestedLabel = name => {
                     const match = name.match(requestPattern)
