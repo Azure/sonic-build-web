@@ -9,6 +9,7 @@ const check_run = require('./check_run');
 const eventhub = require('./eventhub');
 const conflict_detect = require('./conflict_detect.js');
 const auto_cherrypick = require('./auto_cherrypick.js');
+const backport_labels = require('./backport_labels.js');
 
 module.exports = async (app) => {
   // Your code here
@@ -20,6 +21,7 @@ module.exports = async (app) => {
   check_run.init(app);
   eventhub.init(app);
   conflict_detect.init(app);
+  backport_labels.init(app);
   auto_cherrypick.init(app);
 
   // For more information on building apps:
