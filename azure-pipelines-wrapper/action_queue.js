@@ -96,4 +96,5 @@ module.exports = Object.freeze({
     ActionQueue,
     enqueueAction,
     enqueueBashAction,
+    runBashAction,
 });
