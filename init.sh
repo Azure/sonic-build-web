@@ -28,7 +28,14 @@ fi
 apt-get install -y make
 
 # install uv (Python package manager)
-curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
+if ! (
+    set -o pipefail
+    curl -LsSf https://astral.sh/uv/install.sh |
+        env UV_INSTALL_DIR=/usr/local/bin sh
+); then
+    echo "Failed to install uv" >&2
+    exit 1
+fi
 
 # install diff-cover for PR code coverage on the agent
 uv pip install --system diff-cover
@@ -81,6 +88,23 @@ usermod -a -G adm $tmpuser
 usermod -a -G sudo $tmpuser
 echo "$tmpuser ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/100-$tmpuser
 chmod 440 /etc/sudoers.d/100-$tmpuser
+
+# verify dependencies in the pipeline agent's execution context
+if ! sudo -u "$tmpuser" -- bash -e <<'EOF'
+for tool in docker make python3 diff-cover; do
+    if ! command -v "$tool" >/dev/null; then
+        echo "Missing agent dependency: $tool" >&2
+        exit 1
+    fi
+done
+
+sudo -n uv --version
+diff-cover --version
+EOF
+then
+    echo "Agent dependency validation failed" >&2
+    exit 1
+fi
 
 # reboot to apply new kernel if upgraded
 if [ -f /var/run/reboot-required ]; then
