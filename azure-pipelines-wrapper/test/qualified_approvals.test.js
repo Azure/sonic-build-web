@@ -921,6 +921,31 @@ describe("qualified approval coverage", () => {
         noComment();
     });
 
+    test("a direct-child CODEOWNERS wildcard cannot qualify nested docs or submit an assessment", async () => {
+        files = [{ filename: "docs/build-app/troubleshooting.md" }];
+        source.content = Buffer.from("/other/: {}").toString("base64");
+        reviews = [review("Docs")];
+        pr.labels = [{ name: "Qualified-approval" }];
+        const getContent = octokit.rest.repos.getContent.getMockImplementation();
+        octokit.rest.repos.getContent.mockImplementation(async params => {
+            if (params.path === ".github/CODEOWNERS") {
+                return { data: {
+                    type: "file", encoding: "base64",
+                    content: Buffer.from("* @Default\ndocs/* @Docs").toString("base64"),
+                } };
+            }
+            return getContent(params);
+        });
+        await sync();
+        expect(body()).toContain("**0 of 1");
+        expect(body()).toContain("| No reviewer mapping | - | 0 | - |");
+        expect(octokit.rest.issues.addLabels).not.toHaveBeenCalled();
+        expect(octokit.rest.issues.removeLabel).toHaveBeenCalledWith({
+            owner: "sonic-net", repo: "sonic-mgmt", issue_number: 42, name: "Qualified-approval",
+        });
+        expect(mockSubmitMergeRiskAssessment).not.toHaveBeenCalled();
+    });
+
     test("a re-request also excludes approval through CODEOWNERS", async () => {
         source.content = Buffer.from("/tests/: {}").toString("base64");
         const getContent = octokit.rest.repos.getContent.getMockImplementation();

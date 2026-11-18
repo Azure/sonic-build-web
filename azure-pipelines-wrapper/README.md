@@ -75,6 +75,15 @@ A missing file (404) is allowed and leaves score-based behavior unchanged.
 Other read failures and team membership failures are errors, not assumed approval.
 Team resolution needs organization members read permission on the bot token.
 Supported patterns include anchored paths, directories, `*`, `**`, and `?`.
+Single-level wildcard rules such as `docs/*` match direct children, not
+`docs/build-app/troubleshooting.md`. Use `docs/`, `docs/*/`, or `docs/**` for
+recursive directory coverage. A nested path not matched by `docs/*` can still
+match an earlier rule such as `* @Default`; the last matching rule wins.
+If there is no mapping for the nested folder, nearest-parent mapping fallback
+still applies. With no mapped parent, qualification requires a matching
+CODEOWNER or active administrator approval. Without any matching owner or
+eligible mapped reviewer, assignment reports no eligible reviewer rather than
+requesting the owner of a non-matching wildcard rule.
 Unsupported syntax (including email owners, negation, character classes, and
 escaped paths) is reported explicitly rather than guessed.
 

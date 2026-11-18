@@ -1,5 +1,5 @@
 const { parseCodeowners, ownersForFile, loadCodeowners } = require("../codeowners");
-const { summary, parseMapping } = require("../qualified_approval_coverage");
+const { summary, parseMapping, coverage } = require("../qualified_approval_coverage");
 
 describe("CODEOWNERS qualification", () => {
     test.each([
@@ -13,6 +13,18 @@ describe("CODEOWNERS qualification", () => {
         ["* @Default\n/tests/ @Alice\n/tests/private.py", "tests/private.py", []],
         ["/dockers/docker-base*/ @Alice", "dockers/docker-base-bookworm/file", ["@Alice"]],
         ["/scripts @Alice", "scripts/sub/file", ["@Alice"]],
+        ["* @Default\ndocs/* @Docs", "docs/getting-started.md", ["@Docs"]],
+        ["* @Default\ndocs/* @Docs", "docs/build-app/troubleshooting.md", ["@Default"]],
+        ["* @Default\n/docs/* @Docs", "docs/build-app/troubleshooting.md", ["@Default"]],
+        ["docs/* @Docs", "other/docs/getting-started.md", []],
+        ["docs/ @Docs", "docs/build-app/troubleshooting.md", ["@Docs"]],
+        ["docs/*/ @Docs", "docs/build-app/troubleshooting.md", ["@Docs"]],
+        ["docs/** @Docs", "docs/build-app/troubleshooting.md", ["@Docs"]],
+        ["docs/**/troubleshooting.md @Docs", "docs/build-app/troubleshooting.md", ["@Docs"]],
+        ["docs/build-* @Docs", "docs/build-app/troubleshooting.md", []],
+        ["docs/build-??? @Docs", "docs/build-app/troubleshooting.md", []],
+        ["docs/build-??? @Docs", "docs/build-app", ["@Docs"]],
+        ["docs/build-app @Docs", "docs/build-app/troubleshooting.md", ["@Docs"]],
     ])("matches %s against %s", (text, filename, owners) => {
         expect(ownersForFile(filename, parseCodeowners(text))).toEqual(owners);
     });
@@ -28,6 +40,22 @@ describe("CODEOWNERS qualification", () => {
         submitted_at: "2026-10-25T00:00:00Z", commit_id: "head",
     }];
     const files = [{ filename: "tests/public.py" }, { filename: "tests/private.py" }];
+
+    test.each([
+        ["Docs", "/other/: {}", "* @Default\ndocs/* @Docs", false],
+        ["Default", "/other/: {}", "* @Default\ndocs/* @Docs", true],
+        ["Docs", "/docs/: {Docs: 0.4}", "* @Default\ndocs/* @Docs", true],
+        ["Docs", "/: {Docs: 0.4}", "* @Default\ndocs/* @Docs", true],
+        ["Docs", "/docs/: {Docs: 0.4}\n/docs/build-app/: {}", "* @Default\ndocs/* @Docs", false],
+        ["Docs", "/other/: {}", "docs/* @Docs", false],
+    ])("evaluates nested docs with approver %s and mapping %s", (login, mapping, text, qualified) => {
+        const result = coverage(
+            [{ filename: "docs/build-app/troubleshooting.md" }], parseMapping(mapping),
+            [{ ...reviews[0], user: { login, type: "User" } }],
+            { ...pr, changed_files: 1 }, "mapping", { rules: parseCodeowners(text), teams: {} },
+        );
+        expect(result.qualified).toBe(qualified);
+    });
 
     test("codeowner qualifies files but not an entire partially covered folder", () => {
         const result = summary(files, parseMapping("/tests/: {Alice: 0.1}"), reviews, pr, "mapping", {

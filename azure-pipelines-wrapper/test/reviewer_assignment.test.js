@@ -125,6 +125,33 @@ describe("reviewer assignment planning", () => {
         expect(result.reviewers).toEqual(["specific", "default", "alice"]);
     });
 
+    test.each([false, true])("requests the fallback owner for nested docs without a mapping (Docs approved=%s)", approved => {
+        const result = plan({
+            files: [{ filename: "docs/build-app/troubleshooting.md" }],
+            mapping: { "/other/": {} },
+            pr: { changed_files: 1 },
+            codeowners: { rules: parseCodeowners("* @Default\ndocs/* @Docs"), teams: {} },
+            reviews: approved ? [{
+                id: 1, user: { login: "Docs" }, state: "APPROVED",
+                submitted_at: "2026-10-25T00:00:00Z", commit_id: "head",
+            }] : [],
+        });
+        expect(result.reviewers).toEqual(["default"]);
+        expect(result.rows[0].source).toBe("CODEOWNERS");
+    });
+
+    test("leaves nested docs unassigned when neither matching owners nor mapped candidates exist", () => {
+        const result = plan({
+            files: [{ filename: "docs/build-app/troubleshooting.md" }],
+            mapping: { "/other/": {} },
+            pr: { changed_files: 1 },
+            codeowners: { rules: parseCodeowners("docs/* @Docs"), teams: {} },
+        });
+        expect(result.reviewers).toEqual([]);
+        expect(result.rows[0].reviewer).toBeUndefined();
+        expect(assignmentSummary(result)).toContain("No eligible reviewer");
+    });
+
     test.each([0, 1, 2, 3])("tops up %s existing requests to three", count => {
         const requested_reviewers = Array.from({ length: count }, (_, i) => ({ login: `Existing${i}` }));
         const result = plan({

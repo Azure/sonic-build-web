@@ -23,7 +23,10 @@ function parseCodeowners(text) {
             else expression += glob[i].replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
         }
         const prefix = pattern.startsWith("/") || glob.includes("/") ? "^" : "(?:^|/)";
-        const suffix = pattern.endsWith("/") ? "/.*$" : "(?:/.*)?$";
+        const basename = glob.slice(glob.lastIndexOf("/") + 1);
+        // A terminal wildcard matches files, not descendants of matched directories.
+        const suffix = pattern.endsWith("/") ? "/.*$" :
+            /[*?]/.test(basename) ? "$" : "(?:/.*)?$";
         return [{ pattern, owners: fields, regex: new RegExp(`${prefix}${expression}${suffix}`) }];
     });
 }
