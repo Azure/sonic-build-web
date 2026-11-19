@@ -11,32 +11,34 @@ const actionQueue = require('./action_queue');
 const { retry } = require("@azure/core-amqp");
 
 const isDevEnv = process.env.WEBHOOK_PROXY_URL ? true : false;
-const retryPermissions = new Set(["admin", "maintain", "push", "write"]);
 
-async function canRetryBuilds(context, app) {
+async function canRetryBuilds(context, app, octokit) {
     const payload = context.payload;
     const username = payload.comment.user && payload.comment.user.login;
     if (!username) {
-        app.log.error("[ ISSUE COMMENT ] Cannot authorize retry command without a comment author");
-        return false;
+        throw new Error("Cannot authorize retry command without a comment author");
+    }
+    if (payload.comment.author_association === "CONTRIBUTOR") {
+        return true;
     }
 
     try {
-        const response = await context.octokit.rest.repos.getCollaboratorPermissionLevel({
+        const response = await octokit.rest.repos.checkCollaborator({
             owner: payload.repository.owner.login,
             repo: payload.repository.name,
             username: username,
         });
-        const permission = response.data.permission;
-        if (retryPermissions.has(permission)) {
+        if (response.status === 204) {
             return true;
         }
 
-        app.log.info(`[ ISSUE COMMENT ] Denied retry command from ${username} with ${permission || "unknown"} permission`);
-        return false;
+        throw new Error(`Unexpected collaborator lookup status ${response.status} for ${username}`);
     } catch (error) {
-        app.log.error(`[ ISSUE COMMENT ] Failed to authorize retry command from ${username}: ${error}`);
-        return false;
+        if (error.status === 404) {
+            app.log.info(`[ ISSUE COMMENT ] Denied retry command from non-collaborator ${username}`);
+            return false;
+        }
+        throw error;
     }
 }
 
@@ -53,13 +55,17 @@ function adoRequest(method, url, token, body) {
 
         const req = https.request(url, { method, headers }, response => {
             let responseBody = '';
+            response.on('error', reject);
+            response.on('aborted', () => reject(new Error("ADO response aborted")));
             response.setEncoding('utf8');
             response.on('data', chunk => {
                 responseBody += chunk;
             });
             response.on('end', () => {
                 if (response.statusCode < 200 || response.statusCode >= 300) {
-                    reject(new Error(`ADO request failed with ${response.statusCode}: ${responseBody}`));
+                    reject(Object.assign(new Error(`ADO request failed with ${response.statusCode}: ${responseBody}`), {
+                        status: response.statusCode,
+                    }));
                     return;
                 }
                 resolve(responseBody);
@@ -119,20 +125,35 @@ function init(app) {
             }
 
             if (command){
-                if (!await canRetryBuilds(context, app)) {
-                    await context.octokit.rest.issues.createComment({
-                        owner: payload.repository.owner.login,
-                        repo: payload.repository.name,
-                        issue_number: payload.issue.number,
-                        body: "You are not authorized to retry Azure Pipelines jobs for this repository.",
-                    });
-                    return;
-                }
-
                 var github_token = await akv.getGithubToken();
                 const octokit = new Octokit({
                     auth: github_token,
                 });
+
+                let authorized;
+                try {
+                    authorized = await canRetryBuilds(context, app, octokit);
+                } catch (error) {
+                    app.log.error(`[ ISSUE COMMENT ] Failed to authorize retry command for ${payload.repository.full_name}#${payload.issue.number}, comment ${payload.comment.id}, user ${payload.comment.user && payload.comment.user.login}: ${error}`);
+                    await octokit.rest.issues.createComment({
+                        owner: payload.repository.owner.login,
+                        repo: payload.repository.name,
+                        issue_number: payload.issue.number,
+                        body: "⚠️ Retry not queued because the bot could not verify your repository access. This does not mean you lack permission. Please try again later; if this persists, ask a repository maintainer to check the bot's GitHub access and authorization logs.",
+                    });
+                    return;
+                }
+
+                if (!authorized) {
+                    await octokit.rest.issues.createComment({
+                        owner: payload.repository.owner.login,
+                        repo: payload.repository.name,
+                        issue_number: payload.issue.number,
+                        body: "⚠️ Retry not queued. Only repository collaborators and GitHub-recognized contributors with previous commits to this repository can retry Azure Pipelines jobs.",
+                    });
+                    return;
+                }
+
                 try {
                     actionQueue.enqueueAction(async () => {
                         console.log(`Creating issue comment ${command}`);
@@ -149,7 +170,7 @@ function init(app) {
                         owner: payload.repository.owner.login,
                         repo: payload.repository.name,
                         issue_number: payload.issue.number,
-                        body: "Unable to queue the retry because the action queue is full. Please try again later.",
+                        body: "⚠️ Unable to queue the retry because the action queue is full. Please try again later.",
                     });
                 }
                 return;
@@ -230,24 +251,38 @@ async function retryFailedBuilds(context) {
 
     var az_token = await adoauth.getAdoAadToken();
 
+    const unavailableMessage = [
+        `⚠️ Cannot retry Azure DevOps build ${latestBuild.buildId}: the build or its timeline is no longer available.`,
+        "It may have been deleted by the pipeline's 2-week retention policy (14 days after completion).",
+        "`/azpw retry` and `/azpw run` can only retry existing builds; they cannot recreate a deleted build.",
+        "Please close and reopen the PR or push a new commit (for example, rebase your branch) to trigger a new pipeline run.",
+    ].join("\n\n");
     var timelineUrl = `https://dev.azure.com/${latestBuild.org}/${latestBuild.projectId}/_apis/build/builds/${latestBuild.buildId}/timeline?api-version=7.1`;
-    var timelineOutput = await adoRequest("GET", timelineUrl, az_token);
     var timeline;
     try {
+        var timelineOutput = await adoRequest("GET", timelineUrl, az_token);
         timeline = JSON.parse(timelineOutput);
-    } catch (e) {
-        console.error(`Failed to parse timeline for build ${latestBuild.buildId}: ${e.message}`);
-        return;
-    }
-
-    if (!timeline || !timeline.records) {
+    } catch (error) {
+        const unavailable = error.status === 404 || error.status === 410;
         await octokit.rest.issues.createComment({
             owner: owner,
             repo: repo,
             issue_number: pullRequestNumber,
-            body: `Build not found. Please close and reopen the PR or rebase your branch to trigger a new build.`,
+            body: unavailable ? unavailableMessage :
+                `Could not retry Azure DevOps build ${latestBuild.buildId} because its timeline could not be read${error.status ? ` (HTTP ${error.status})` : ""}. No stages were retried. Please try again later or ask a repository maintainer to check the bot's Azure DevOps access and logs.`,
         });
-        return;
+        if (unavailable) return;
+        throw error;
+    }
+
+    if (!timeline || !Array.isArray(timeline.records)) {
+        await octokit.rest.issues.createComment({
+            owner: owner,
+            repo: repo,
+            issue_number: pullRequestNumber,
+            body: `Could not retry Azure DevOps build ${latestBuild.buildId}: Azure DevOps returned a timeline without a valid records list. No stages were retried. Please ask a repository maintainer to check the build and the bot's logs.`,
+        });
+        throw new Error(`Invalid timeline records for build ${latestBuild.buildId}`);
     }
 
     var failedStages = [], failedJobs = [], inProgressStages = [];
@@ -320,6 +355,10 @@ async function retryFailedBuilds(context) {
             }
         } catch (e) {
             console.error(`Failed to retry stage '${stage.identifier}' in build ${latestBuild.buildId}: ${e.message}`);
+            if (e.status === 404 || e.status === 410) {
+                summaryLines.push(`\n\n${unavailableMessage} Stage **${stage.identifier}** was not retried; no further stages will be attempted.`);
+                break;
+            }
             summaryLines.push(`❌ Stage **${stage.identifier}**: error — ${e.message}`);
         }
     }
