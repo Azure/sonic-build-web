@@ -22,6 +22,43 @@ docker build -t event-collector .
 docker run -e APP_ID=<app-id> -e PRIVATE_KEY=<pem-value> event-collector
 ```
 
+## Retrying Azure Pipelines jobs
+
+Any confirmed repository collaborator or GitHub-recognized contributor can use
+`/azpw retry` or `/azpw run`, including collaborators with read or triage access.
+Contributors are identified by GitHub's `CONTRIBUTOR` value on the comment's
+`author_association` in the authenticated webhook payload, indicating previous
+commits to the repository; contributor authorization does not require a separate
+collaborator lookup. The long-form
+`/azurepipelineswrapper retry` and `/azurepipelineswrapper run` commands use
+the same authorization policy. The wrapper checks the comment author's
+collaborator membership through GitHub's API when the commenter is not identified
+as a contributor. Public repository visibility, PR authorship, first-time
+contribution, and other author associations alone do not authorize a retry.
+Users who are neither contributors nor confirmed collaborators are denied.
+Missing authors and required collaborator lookup failures prevent the command
+and are logged with repository, PR, comment, and author details; no retry is queued.
+These failures produce a separate verification-error comment, not a claim that
+the user lacks permission. Collaborator membership checks use the existing
+`mssonicbld` token rather than the webhook's GitHub App client; the token must
+be allowed to check repository collaborator membership. A `MEMBER` association
+does not exclude repository admins: confirmed membership authorizes them.
+Retry-denied, retry-status, and queue-full comments use the existing `mssonicbld`
+GitHub token, not the GitHub App identity. Bot token or comment-write failures
+propagate without falling back to app-authored comments.
+
+Retry commands operate on existing builds; they cannot recreate builds deleted
+by the pipeline's 2-week retention policy (14 days after completion).
+If the selected build's timeline returns
+HTTP 404 or 410, the bot posts the build ID, explains that it may have expired,
+and recommends closing/reopening the PR or pushing a new commit to trigger a
+fresh pipeline run. No retry is sent in that case. If the build becomes
+unavailable during stage retries, the bot reports it and stops further retries.
+Retention periods depend on pipeline settings; age alone is not used to decide
+whether a build exists. Other timeline lookup or response-format failures also
+produce a bot comment and propagate to the action queue logs rather than
+leaving only the initial retry-status comment.
+
 ## Qualified approval coverage
 
 For the `sonic-net/sonic-mgmt` pilot, the bot posts informational PR
