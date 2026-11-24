@@ -375,11 +375,13 @@ describe("qualified approval coverage", () => {
         noComment();
     });
 
-    test("cleans up bot-added automerge when qualification is already absent", async () => {
+    test.each([false, true])("preserves submodule bot-added automerge without prior qualification (assign=%s)", async assign => {
         pr.labels = [{ name: "automerge" }];
         labelEvents = [labelEvent(1, "mssonicbld")];
-        await sync();
-        expect(pr.labels).toEqual([]);
+        await qualifiedApprovals.sync(octokit, "sonic-net", "sonic-mgmt", 42, assign, console, false);
+        expect(pr.labels).toEqual([{ name: "automerge" }]);
+        expect(octokit.rest.issues.removeLabel).not.toHaveBeenCalled();
+        expect(octokit.paginate).not.toHaveBeenCalledWith(octokit.rest.issues.listEvents, expect.anything());
     });
 
     test.each([
@@ -397,7 +399,7 @@ describe("qualified approval coverage", () => {
     });
 
     test("uses the latest automerge addition rather than an older human addition", async () => {
-        pr.labels = [{ name: "automerge" }];
+        pr.labels = [{ name: "Qualified-approval" }, { name: "automerge" }];
         labelEvents = [
             labelEvent(1, "human"), labelEvent(2, "human", "unlabeled"),
             labelEvent(3, "mssonicbld"), labelEvent(4, "human", "labeled", "unrelated"),
@@ -414,7 +416,7 @@ describe("qualified approval coverage", () => {
         expect(octokit.paginate).not.toHaveBeenCalledWith(octokit.rest.issues.listEvents, expect.anything());
     });
 
-    test.each(["history", "removal"])("surfaces automerge %s failures and retries on a later sync", async stage => {
+    test.each(["history", "removal"])("surfaces automerge %s failures and retries on the qualification removal webhook", async stage => {
         pr.labels = [{ name: "Qualified-approval" }, { name: "automerge" }];
         labelEvents = [labelEvent(1, "mssonicbld")];
         if (stage === "history") {
@@ -429,7 +431,8 @@ describe("qualified approval coverage", () => {
         await expect(sync()).rejects.toThrow(stage === "history" ? "Cannot read label events" : "Cannot remove automerge");
         expect(pr.labels).toEqual([{ name: "automerge" }]);
         noComment();
-        await sync();
+        const run = await qualificationRemoval();
+        await run();
         expect(pr.labels).toEqual([]);
     });
 
@@ -834,6 +837,27 @@ describe("qualified approval coverage", () => {
         expect(body()).toContain(marker);
         expect(body()).not.toContain("## Reviewer assignment");
         expect(octokit.rest.pulls.requestReviewers).not.toHaveBeenCalled();
+    });
+
+    test.each([
+        "sonic-bmp", "sonic-buildimage", "sonic-dash-api", "sonic-dash-ha",
+        "sonic-dbsyncd", "sonic-dhcp-relay", "sonic-dhcpmon", "sonic-fips",
+        "sonic-genl-packet", "sonic-gnmi", "sonic-host-services", "sonic-linkmgrd",
+        "sonic-linux-kernel", "sonic-mgmt", "sonic-mgmt-common", "sonic-mgmt-framework",
+        "sonic-platform-common", "sonic-platform-daemons", "sonic-platform-vpp",
+        "sonic-py-swsssdk", "sonic-redfish", "sonic-restapi", "sonic-sairedis",
+        "sonic-snmpagent", "sonic-stp", "sonic-swss", "sonic-swss-common",
+        "sonic-utilities", "sonic-wpa-supplicant", "sonic-ztp",
+    ])("queues qualified approval processing for sonic-net/%s", async repo => {
+        const app = { on: jest.fn() };
+        qualifiedApprovals.init(app);
+        await app.on.mock.calls[0][1]({ payload: {
+            repository: { full_name: `sonic-net/${repo}`, owner: { login: "sonic-net" }, name: repo },
+            pull_request: pr, action: "submitted", review: { state: "approved" },
+        } });
+        expect(mockEnqueueAction).toHaveBeenCalledWith(
+            expect.any(Function), `qualified approvals sonic-net/${repo}#42`, app,
+        );
     });
 
     test("ignores comment-only reviews", async () => {

@@ -89,6 +89,42 @@ describe("CODEOWNERS qualification", () => {
         await expect(loadCodeowners(octokit, "sonic-net", "repo", "base")).rejects.toThrow("Forbidden");
     });
 
+    test("skips missing or inaccessible teams without falling back to earlier owners", async () => {
+        const octokit = {
+            rest: {
+                repos: { getContent: jest.fn().mockResolvedValue({ data: {
+                    type: "file", encoding: "base64",
+                    content: Buffer.from("* @Alice\n/tests/ @sonic-net/missing\n/other/ @sonic-net/available").toString("base64"),
+                } }) },
+                teams: { listMembersInOrg: jest.fn() },
+            },
+            paginate: jest.fn()
+                .mockRejectedValueOnce({ status: 404 })
+                .mockResolvedValueOnce([{ login: "Bob" }]),
+        };
+        const log = { warn: jest.fn() };
+        const result = await loadCodeowners(octokit, "sonic-net", "repo", "base", log);
+        expect(result.teams).toEqual({ "sonic-net/available": ["Bob"] });
+        expect(log.warn).toHaveBeenCalledWith(expect.stringContaining("skipping team sonic-net/missing"));
+        expect(ownersForFile("tests/public.py", result.rules)).toEqual(["@sonic-net/missing"]);
+        expect(coverage(files, parseMapping("/other/: {}"), reviews, pr, "mapping", result).qualified).toBe(false);
+    });
+
+    test.each([401, 403, 429, 500, undefined])("propagates team lookup failure with status %s", async status => {
+        const error = Object.assign(new Error("Team lookup failed"), { status });
+        const octokit = {
+            rest: {
+                repos: { getContent: jest.fn().mockResolvedValue({ data: {
+                    type: "file", encoding: "base64",
+                    content: Buffer.from("* @sonic-net/maintainers").toString("base64"),
+                } }) },
+                teams: { listMembersInOrg: jest.fn() },
+            },
+            paginate: jest.fn().mockRejectedValue(error),
+        };
+        await expect(loadCodeowners(octokit, "sonic-net", "repo", "base")).rejects.toBe(error);
+    });
+
     test("loads base-commit rules and paginates team membership", async () => {
         const getContent = jest.fn().mockResolvedValue({ data: {
             type: "file", encoding: "base64",

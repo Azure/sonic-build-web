@@ -61,7 +61,13 @@ leaving only the initial retry-status comment.
 
 ## Qualified approval coverage
 
-For the `sonic-net/sonic-mgmt` pilot, the bot posts informational PR
+CODEOWNERS teams whose member lookup returns HTTP 404 are skipped with a warning
+identifying the repository and team. GitHub may return 404 for either a missing
+team or one inaccessible to the bot. Skipped teams cannot qualify approvals or
+receive reviewer requests; their matching rules remain in effect, without
+falling back to earlier owners. Other team lookup failures stop processing.
+
+For repositories enabled in the `repos` allowlist in `qualified_approvals.js`, the bot posts informational PR
 comments showing which changed folders have qualified approval, which are awaiting
 approval, and which have no reviewer mapping. It does not block merging.
 
@@ -167,7 +173,10 @@ labels with unconfirmed provenance are preserved, as are unrelated labels.
 The same cleanup runs on `pull_request.unlabeled` events for `Qualified-approval`,
 including manual removals, without recalculating coverage or re-adding the label.
 It rechecks that qualification is still absent before removing `automerge`.
-Later unqualified coverage updates retry cleanup if `automerge` remains.
+Unqualified coverage alone does not trigger cleanup: a coverage update must
+actually remove `Qualified-approval`, or a removal webhook must be processed.
+This preserves bot-added submodule `automerge` labels on PRs that never qualified.
+If cleanup fails after qualification is removed, its removal webhook can retry it.
 Label and event-history API failures are reported
 through the action queue. Reviewer assignment lookup failures do not prevent an
 already-calculated label update.
@@ -289,7 +298,7 @@ A 2xx response confirms submission, not completion of the assessment.
 
 ### Automatic reviewer assignment
 
-For the sonic-mgmt pilot, non-draft open PRs receive reviewer requests on opening,
+For enabled repositories, non-draft open PRs receive reviewer requests on opening,
 reopening, becoming ready for review, new commits, and base-branch changes.
 Already-qualified paths need no additional requests. For each remaining path:
 
