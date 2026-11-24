@@ -2,7 +2,7 @@
     "manifestVersion": 1,
     "id": "code-diff-coverage",
     "publisher": "CodeCoverageTask",
-    "version": "1.0.23",
+    "version": "1.0.24",
     "name": "Code Diff Coverage",
     "description": "Code Diff Coverage",
     "public": false,

@@ -11,7 +11,7 @@
     "version": {
         "Major": 1,
         "Minor": 0,
-        "Patch": 23
+        "Patch": 24
     },
     "demands": [],
     "instanceNameFormat": "Publish code coverage",
@@ -34,6 +34,12 @@
         }
     ],
     "execution": {
+        "Node24": {
+            "target": "index.js"
+        },
+        "Node20_1": {
+            "target": "index.js"
+        },
         "Node10": {
             "target": "index.js"
         }
