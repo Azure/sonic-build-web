@@ -7,7 +7,38 @@ const { planAssignments } = require("./reviewer_assignment");
 const { loadReviewerAccess, loadAdminApprovers } = require("./reviewer_access");
 const mergeRiskAssessment = require("./merge_risk_assessment");
 
-const repos = new Set(["sonic-net/sonic-mgmt"]);
+const repos = new Set([
+    "sonic-net/sonic-bmp",
+    "sonic-net/sonic-buildimage",
+    "sonic-net/sonic-dash-api",
+    "sonic-net/sonic-dash-ha",
+    "sonic-net/sonic-dbsyncd",
+    "sonic-net/sonic-dhcp-relay",
+    "sonic-net/sonic-dhcpmon",
+    "sonic-net/sonic-fips",
+    "sonic-net/sonic-genl-packet",
+    "sonic-net/sonic-gnmi",
+    "sonic-net/sonic-host-services",
+    "sonic-net/sonic-linkmgrd",
+    "sonic-net/sonic-linux-kernel",
+    "sonic-net/sonic-mgmt",
+    "sonic-net/sonic-mgmt-common",
+    "sonic-net/sonic-mgmt-framework",
+    "sonic-net/sonic-platform-common",
+    "sonic-net/sonic-platform-daemons",
+    "sonic-net/sonic-platform-vpp",
+    "sonic-net/sonic-py-swsssdk",
+    "sonic-net/sonic-redfish",
+    "sonic-net/sonic-restapi",
+    "sonic-net/sonic-sairedis",
+    "sonic-net/sonic-snmpagent",
+    "sonic-net/sonic-stp",
+    "sonic-net/sonic-swss",
+    "sonic-net/sonic-swss-common",
+    "sonic-net/sonic-utilities",
+    "sonic-net/sonic-wpa-supplicant",
+    "sonic-net/sonic-ztp",
+]);
 const mappingRepo = { owner: "sonic-net", repo: "sonic-tsc", ref: "master" };
 
 async function removeBotAutomerge(octokit, owner, repo, number, log) {
@@ -50,7 +81,7 @@ async function sync(octokit, owner, repo, number, assign = false, log = console,
         octokit.rest.repos.getContent({ ...mappingRepo, path: mappingPath }),
         octokit.paginate(octokit.rest.pulls.listFiles, { ...params, per_page: 100 }),
         octokit.paginate(octokit.rest.pulls.listReviews, { ...params, per_page: 100 }),
-        loadCodeowners(octokit, owner, repo, pr.base.sha),
+        loadCodeowners(octokit, owner, repo, pr.base.sha, log),
     ]);
     if (source.type !== "file" || source.encoding !== "base64" || !source.content) {
         throw new Error(`Reviewer mapping is not a readable file: ${mappingPath}`);
@@ -81,7 +112,7 @@ async function sync(octokit, owner, repo, number, assign = false, log = console,
         await octokit.rest.issues.removeLabel({ ...issue, name: label.name });
         log.info(`[ QUALIFIED APPROVAL ] ${owner}/${repo}#${number}: removed ${qualifiedApprovalLabel}`);
     }
-    if (!result.qualified && (current.labels || []).some(label => label.name.toLowerCase() === "automerge")) {
+    if (!result.qualified && label && (current.labels || []).some(label => label.name.toLowerCase() === "automerge")) {
         await removeBotAutomerge(octokit, owner, repo, number, log);
     }
     let plan = null;

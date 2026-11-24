@@ -48,7 +48,7 @@ function approvedOwners(filename, rules, approvers, teams) {
     });
 }
 
-async function loadCodeowners(octokit, owner, repo, ref) {
+async function loadCodeowners(octokit, owner, repo, ref, log = console) {
     let source;
     try {
         ({ data: source } = await octokit.rest.repos.getContent({
@@ -66,10 +66,15 @@ async function loadCodeowners(octokit, owner, repo, ref) {
     for (const name of new Set(rules.flatMap(rule => rule.owners)
         .map(login => login.slice(1).toLowerCase()).filter(login => login.includes("/")))) {
         const [org, team_slug] = name.split("/");
-        const members = await octokit.paginate(octokit.rest.teams.listMembersInOrg, {
-            org, team_slug, per_page: 100,
-        });
-        teams[name] = members.map(member => member.login);
+        try {
+            const members = await octokit.paginate(octokit.rest.teams.listMembersInOrg, {
+                org, team_slug, per_page: 100,
+            });
+            teams[name] = members.map(member => member.login);
+        } catch (error) {
+            if (error.status !== 404) throw error;
+            log.warn(`[ CODEOWNERS ] ${owner}/${repo} at ${ref}: skipping team ${name}; member lookup returned HTTP 404 (team missing or inaccessible to the bot)`);
+        }
     }
     return {
         rules, teams,
