@@ -5,9 +5,10 @@ const { requestedReviewers } = require("./qualified_approval_coverage");
 const endpoint = "https://sonic-elastictest-prod-scheduler-backend-webapp.azurewebsites.net/v1/task-plans/github-app";
 const scope = "api://sonic-testbed-tools-prod/.default";
 const pbiId = "40516754";
+const maxBatchPrs = 7;
 let credential;
 
-async function submitTask(pr, owner, repo) {
+async function submitTask(description) {
     const clientId = (process.env.ADO_MI_CLIENT_ID || "").trim();
     if (!clientId) {
         throw new Error("Set ADO_MI_CLIENT_ID to the attached managed identity client ID before submitting merge risk assessments");
@@ -22,7 +23,7 @@ async function submitTask(pr, owner, repo) {
     const body = JSON.stringify({
         type: "MERGE_RISK_ASSESSMENT",
         pbi_id: pbiId,
-        description: `Assess merge risk for https://github.com/${owner}/${repo}/pull/${pr.number} at head commit ${pr.head.sha}.`,
+        description,
     });
     await new Promise((resolve, reject) => {
         const request = https.request(endpoint, {
@@ -71,13 +72,13 @@ async function submitTask(pr, owner, repo) {
     });
 }
 
-async function submit(octokit, owner, repo, pr, log = console) {
+async function needsSubmission(octokit, owner, repo, pr) {
     const issue = { owner, repo, issue_number: pr.number };
     const marker = `<!-- sonic-merge-risk-assessment:${pr.head.sha} -->`;
     const comments = await octokit.paginate(octokit.rest.issues.listComments, { ...issue, per_page: 100 });
     if (comments.some(comment => comment.user && comment.user.login.toLowerCase() === "mssonicbld" &&
         (comment.body || "").split("\n").includes(marker))) {
-        return;
+        return false;
     }
     const { data: current } = await octokit.rest.pulls.get({ owner, repo, pull_number: pr.number });
     if (current.state !== "open" || current.head.sha !== pr.head.sha ||
@@ -85,12 +86,41 @@ async function submit(octokit, owner, repo, pr, log = console) {
         requestedReviewers(current).join(",") !== requestedReviewers(pr).join(",")) {
         throw new Error("PR changed before submitting merge risk assessment; skipping stale request");
     }
-    await submitTask(pr, owner, repo);
-    log.info(`[ MERGE RISK ASSESSMENT ] ${owner}/${repo}#${pr.number}: submitted head ${pr.head.sha}, PBI ${pbiId}`);
-    await octokit.rest.issues.createComment({
-        ...issue,
-        body: `${marker}\nMerge risk assessment requested for head commit \`${pr.head.sha}\`. This confirms submission only, not completion or approval to merge.`,
-    });
+    return true;
 }
 
-module.exports = Object.freeze({ submit });
+async function submitBatch(octokit, candidates, log = console) {
+    const pending = [];
+    const seen = new Set();
+    for (const candidate of candidates) {
+        const { owner, repo, pr } = candidate;
+        const key = `${owner}/${repo}#${pr.number}`.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        if (await needsSubmission(octokit, owner, repo, pr)) {
+            pending.push(candidate);
+            if (pending.length === maxBatchPrs) break;
+        }
+    }
+    if (!pending.length) return;
+    await submitTask(pending.map(({ owner, repo, pr }) =>
+        `Assess merge risk for https://github.com/${owner}/${repo}/pull/${pr.number} at head commit ${pr.head.sha}.`,
+    ).join("\n"));
+    const receipts = await Promise.allSettled(pending.map(async ({ owner, repo, pr }) => {
+        log.info(`[ MERGE RISK ASSESSMENT ] ${owner}/${repo}#${pr.number}: submitted head ${pr.head.sha}, PBI ${pbiId}`);
+        await octokit.rest.issues.createComment({
+            owner, repo, issue_number: pr.number,
+            body: `<!-- sonic-merge-risk-assessment:${pr.head.sha} -->\nMerge risk assessment requested for head commit \`${pr.head.sha}\`. This confirms submission only, not completion or approval to merge.`,
+        });
+    }));
+    const failures = receipts.filter(result => result.status === "rejected");
+    if (failures.length) {
+        throw new Error(`Merge risk assessment receipt writes failed: ${failures.map(result => result.reason).join("; ")}`);
+    }
+}
+
+async function submit(octokit, owner, repo, pr, log = console) {
+    return submitBatch(octokit, [{ owner, repo, pr }], log);
+}
+
+module.exports = Object.freeze({ submit, submitBatch });

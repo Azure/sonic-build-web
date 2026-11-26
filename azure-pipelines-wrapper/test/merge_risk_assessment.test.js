@@ -7,7 +7,7 @@ jest.mock("@azure/identity", () => ({
     ManagedIdentityCredential: jest.fn(function () { return { getToken: mockGetToken }; }),
 }));
 const { ManagedIdentityCredential } = require("@azure/identity");
-const { submit } = require("../merge_risk_assessment");
+const { submit, submitBatch } = require("../merge_risk_assessment");
 
 const baseUrl = "https://sonic-elastictest-prod-scheduler-backend-webapp.azurewebsites.net";
 const marker = "<!-- sonic-merge-risk-assessment:head -->";
@@ -60,6 +60,156 @@ describe("merge risk assessment", () => {
         pbi_id: "40516754",
         description: `Assess merge risk for https://github.com/sonic-net/sonic-mgmt/pull/42 at head commit ${pr.head.sha}.`,
     }).reply(status);
+
+    const candidates = () => [
+        { owner: "sonic-net", repo: "sonic-mgmt", pr },
+        { owner: "sonic-net", repo: "sonic-swss", pr: { ...pr, number: 43 } },
+    ];
+    const prepareBatch = () => {
+        octokit.rest.pulls.get.mockImplementation(async ({ pull_number }) => ({
+            data: { ...pr, number: pull_number },
+        }));
+        octokit.paginate.mockImplementation(async (method, { issue_number }) => issue_number === 42 ? comments : []);
+    };
+
+    test("submits multiple PRs in exactly one task with every URL and head, then records individual receipts", async () => {
+        prepareBatch();
+        const request = nock(baseUrl).post("/v1/task-plans/github-app", {
+            type: "MERGE_RISK_ASSESSMENT",
+            pbi_id: "40516754",
+            description: "Assess merge risk for https://github.com/sonic-net/sonic-mgmt/pull/42 at head commit head.\n" +
+                "Assess merge risk for https://github.com/sonic-net/sonic-swss/pull/43 at head commit head.",
+        }).reply(202);
+        await submitBatch(octokit, candidates(), log);
+        expect(request.isDone()).toBe(true);
+        expect(mockGetToken).toHaveBeenCalledTimes(1);
+        expect(octokit.rest.issues.createComment).toHaveBeenCalledTimes(2);
+        expect(octokit.rest.issues.createComment).toHaveBeenCalledWith({
+            owner: "sonic-net", repo: "sonic-swss", issue_number: 43,
+            body: expect.stringContaining(marker),
+        });
+    });
+
+    test("omits already submitted heads from the combined task", async () => {
+        prepareBatch();
+        comments.push({ user: { login: "mssonicbld" }, body: marker });
+        const request = nock(baseUrl).post("/v1/task-plans/github-app", body =>
+            body.description === "Assess merge risk for https://github.com/sonic-net/sonic-swss/pull/43 at head commit head.",
+        ).reply(202);
+        await submitBatch(octokit, candidates(), log);
+        expect(request.isDone()).toBe(true);
+        expect(octokit.rest.issues.createComment).toHaveBeenCalledTimes(1);
+    });
+
+    test("does not authenticate or submit an empty or fully receipted batch", async () => {
+        await submitBatch(octokit, [], log);
+        comments.push({ user: { login: "mssonicbld" }, body: marker });
+        await submitBatch(octokit, [candidates()[0]], log);
+        expect(mockGetToken).not.toHaveBeenCalled();
+        expect(octokit.rest.issues.createComment).not.toHaveBeenCalled();
+    });
+
+    test("deduplicates repeated candidates within a batch", async () => {
+        const request = task(202);
+        await submitBatch(octokit, [candidates()[0], candidates()[0]], log);
+        expect(request.isDone()).toBe(true);
+        expect(octokit.rest.issues.createComment).toHaveBeenCalledTimes(1);
+    });
+
+    test.each([7, 8, 15])("limits %s PRs to seven per run and carries overflow into later batches", async count => {
+        const all = Array.from({ length: count }, (_, index) => ({
+            owner: "sonic-net", repo: "sonic-mgmt",
+            pr: { ...pr, number: 42 + index, head: { sha: `head-${index}` } },
+        }));
+        const savedReceipts = new Map();
+        octokit.rest.pulls.get.mockImplementation(async ({ pull_number }) => ({
+            data: all.find(candidate => candidate.pr.number === pull_number).pr,
+        }));
+        octokit.paginate.mockImplementation(async (method, { issue_number }) =>
+            savedReceipts.get(issue_number) || [],
+        );
+        octokit.rest.issues.createComment.mockImplementation(async ({ issue_number, body }) => {
+            savedReceipts.set(issue_number, [{ user: { login: "mssonicbld" }, body }]);
+        });
+
+        for (let offset = 0; offset < count; offset += 7) {
+            const batch = all.slice(offset, offset + 7);
+            const request = nock(baseUrl).post("/v1/task-plans/github-app", {
+                type: "MERGE_RISK_ASSESSMENT",
+                pbi_id: "40516754",
+                description: batch.map(({ owner, repo, pr: candidate }) =>
+                    `Assess merge risk for https://github.com/${owner}/${repo}/pull/${candidate.number} at head commit ${candidate.head.sha}.`,
+                ).join("\n"),
+            }).reply(202);
+            await submitBatch(octokit, all, log);
+            expect(request.isDone()).toBe(true);
+            expect(mockGetToken).toHaveBeenCalledTimes(offset / 7 + 1);
+            expect([...savedReceipts.keys()]).toEqual(all.slice(0, offset + 7).map(candidate => candidate.pr.number));
+            expect(octokit.rest.issues.createComment.mock.calls.slice(offset).map(([issue]) => issue.issue_number))
+                .toEqual(batch.map(candidate => candidate.pr.number));
+        }
+
+        await submitBatch(octokit, all, log);
+        expect(mockGetToken).toHaveBeenCalledTimes(Math.ceil(count / 7));
+        expect(octokit.rest.issues.createComment).toHaveBeenCalledTimes(count);
+    });
+
+    test("already receipted PRs and duplicate candidates do not consume batch slots", async () => {
+        const all = Array.from({ length: 9 }, (_, index) => ({
+            owner: "sonic-net", repo: "sonic-mgmt", pr: { ...pr, number: 42 + index },
+        }));
+        prepareBatch();
+        comments.push({ user: { login: "mssonicbld" }, body: marker });
+        const batch = all.slice(1, 8);
+        const request = nock(baseUrl).post("/v1/task-plans/github-app", {
+            type: "MERGE_RISK_ASSESSMENT",
+            pbi_id: "40516754",
+            description: batch.map(({ owner, repo, pr: candidate }) =>
+                `Assess merge risk for https://github.com/${owner}/${repo}/pull/${candidate.number} at head commit ${candidate.head.sha}.`,
+            ).join("\n"),
+        }).reply(202);
+        await submitBatch(octokit, [all[0], all[1], all[1], ...all.slice(2)], log);
+        expect(request.isDone()).toBe(true);
+        expect(mockGetToken).toHaveBeenCalledTimes(1);
+        expect(octokit.rest.issues.createComment.mock.calls.map(([issue]) => issue.issue_number))
+            .toEqual(batch.map(candidate => candidate.pr.number));
+        expect(octokit.rest.pulls.get).not.toHaveBeenCalledWith(expect.objectContaining({ pull_number: 50 }));
+    });
+
+    test("does not submit any batch entries if final freshness validation fails", async () => {
+        prepareBatch();
+        octokit.rest.pulls.get.mockResolvedValueOnce({ data: pr })
+            .mockResolvedValueOnce({ data: { ...pr, state: "closed" } });
+        await expect(submitBatch(octokit, candidates(), log)).rejects.toThrow("skipping stale request");
+        expect(mockGetToken).not.toHaveBeenCalled();
+        expect(octokit.rest.issues.createComment).not.toHaveBeenCalled();
+    });
+
+    test("does not write any receipts for a rejected combined task", async () => {
+        prepareBatch();
+        nock(baseUrl).post("/v1/task-plans/github-app").reply(503);
+        await expect(submitBatch(octokit, candidates(), log)).rejects.toThrow("HTTP 503");
+        expect(octokit.rest.issues.createComment).not.toHaveBeenCalled();
+    });
+
+    test("attempts every receipt and waits for all writes when one fails", async () => {
+        prepareBatch();
+        nock(baseUrl).post("/v1/task-plans/github-app").reply(202);
+        let finish;
+        octokit.rest.issues.createComment
+            .mockRejectedValueOnce(new Error("Cannot save first receipt"))
+            .mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
+        let completed = false;
+        const submission = submitBatch(octokit, candidates(), log);
+        const assertion = expect(submission).rejects.toThrow("Cannot save first receipt");
+        submission.then(() => { completed = true; }, () => { completed = true; });
+        while (octokit.rest.issues.createComment.mock.calls.length < 2) {
+            await new Promise(resolve => setImmediate(resolve));
+        }
+        expect(completed).toBe(false);
+        finish();
+        await assertion;
+    });
 
     test.each([200, 201, 202, 204])("submits the exact model-free GitHub-app payload and records a receipt after HTTP %s", async status => {
         const request = task(status);
