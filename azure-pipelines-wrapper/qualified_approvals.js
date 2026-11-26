@@ -144,9 +144,33 @@ async function sync(octokit, owner, repo, number, assign = false, log = console,
     if (comment) {
         await octokit.rest.issues.createComment({ ...issue, body: result.body });
     }
-    if (result.qualified) {
-        await mergeRiskAssessment.submit(octokit, owner, repo, current, log);
+    return result.qualified ? current : null;
+}
+
+async function submitAssessmentBatch(octokit, log = console) {
+    const candidates = [];
+    for (const fullName of repos) {
+        const [owner, repo] = fullName.split("/");
+        let issues;
+        try {
+            issues = await octokit.paginate(octokit.rest.issues.listForRepo, {
+                owner, repo, state: "open", labels: qualifiedApprovalLabel, per_page: 100,
+            });
+        } catch (error) {
+            log.error(`[ MERGE RISK ASSESSMENT ] Cannot list candidates for ${fullName}: ${error}`);
+            continue;
+        }
+        for (const issue of issues) {
+            if (!issue.pull_request) continue;
+            try {
+                const pr = await sync(octokit, owner, repo, issue.number, false, log, false);
+                if (pr) candidates.push({ owner, repo, pr });
+            } catch (error) {
+                log.error(`[ MERGE RISK ASSESSMENT ] Cannot revalidate ${fullName}#${issue.number}: ${error}`);
+            }
+        }
     }
+    await mergeRiskAssessment.submitBatch(octokit, candidates, log);
 }
 
 function init(app) {
@@ -182,6 +206,23 @@ function init(app) {
             }
         }, `qualified approvals ${repository.full_name}#${pr.number}`, app);
     });
+    let queued = false;
+    const timer = setInterval(async () => {
+        if (queued) return;
+        queued = true;
+        try {
+            await actionQueue.enqueueAction(async () => {
+                const token = await akv.getGithubToken();
+                await submitAssessmentBatch(new Octokit({ auth: token }), app.log);
+            }, "hourly merge risk assessment batch", app);
+        } catch (error) {
+            app.log.error(`[ MERGE RISK ASSESSMENT ] Hourly batch failed: ${error}`);
+        } finally {
+            queued = false;
+        }
+    }, 60 * 60 * 1000);
+    timer.unref();
+    return timer;
 }
 
-module.exports = Object.freeze({ init, sync });
+module.exports = Object.freeze({ init, sync, submitAssessmentBatch });

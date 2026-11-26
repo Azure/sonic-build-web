@@ -199,11 +199,31 @@ added to the pilot allowlist after their mappings are available.
 
 ### Merge risk assessment
 
-When a processed PR event finds full qualified-approval coverage, the bot submits
-`POST /v1/task-plans/github-app` to
+PR events update qualified-approval coverage and labels immediately, but do not
+submit AI tasks. Every hour after wrapper startup, the bot scans open PRs with the
+`Qualified-approval` label in the enabled repositories. It recalculates coverage
+without posting coverage summaries or assigning reviewers, excludes PRs that are
+closed, no longer qualified, or no longer target `master`, and checks existing
+submission receipts. Labels and receipts are stored in GitHub, so pending work is
+rediscovered after a restart rather than lost with an in-memory queue.
+
+Up to **seven eligible, not-yet-submitted PR heads** are included in **one combined
+AI task** per hourly run, using `POST /v1/task-plans/github-app` to
 `https://sonic-elastictest-prod-scheduler-backend-webapp.azurewebsites.net`.
+Additional PRs remain pending for the next hourly batch; no extra task is
+submitted during the same run. Only unique PRs without a receipt for their current
+head count toward the seven-PR limit. Deferred PRs receive no submission receipt
+until included in a successful batch and are revalidated on the next hourly run.
+Each line of its description identifies one PR URL and head commit. No task is
+submitted when the batch is empty. The hourly job shares the existing serialized
+action queue; if a batch is still queued or running, another is not enqueued.
+Queue delays can make submission later than the hourly tick. The first run is
+one hour after startup, not immediately or necessarily at the top of the hour.
+Repository discovery and PR revalidation failures are logged and skipped for that
+run; other candidates are still considered. A PR changing during final receipt
+and freshness checks aborts submission of that batch until a later hourly run.
 The payload uses type `MERGE_RISK_ASSESSMENT`, the hardcoded PBI ID `"40516754"`,
-and a description identifying the PR URL and head commit. Both the wrapper and
+and the combined description. Both the wrapper and
 terminal smoke test omit `model`, which is not required by the GitHub-app endpoint.
 The PBI must document the PR; this integration does not create or update PBIs.
 
@@ -215,14 +235,15 @@ requests a separate scheduler token; it does not reuse Key Vault or Azure DevOps
 tokens. Missing or empty identity configuration fails explicitly when submitting;
 there is no system-assigned identity or local-login fallback.
 
-After a successful submission, the bot posts a receipt comment with a
+After a successful combined submission, the bot posts a receipt on each included
+PR with a
 `sonic-merge-risk-assessment` marker for that head commit and explicitly states
 that submission is not completion or approval to merge. It paginates comments
 and trusts only receipts authored by `mssonicbld`, using the existing bot token.
 Receipts survive restarts and prevent repeat submissions for the same head,
 including after approval is lost and regained. A newly qualified head gets a new
-assessment. Lifecycle events can post this receipt even though they do not post
-coverage summaries. The qualified label alone is not a submission receipt.
+assessment in the next hourly batch. Receipts are posted by the hourly job, not
+by PR lifecycle events. The qualified label alone is not a submission receipt.
 
 Authentication, HTTP, timeout, and receipt-write failures propagate to the action
 queue logs. Non-2xx HTTP errors include up to 8192 bytes of the response body,
@@ -230,10 +251,12 @@ so scheduler validation failures (HTTP 422) identify rejected fields rather than
 only showing the status code. Empty bodies and truncation are reported explicitly;
 the access token is redacted if echoed by the server.
 Requests time out after 60 seconds of socket inactivity and are not
-automatically retried. A later qualifying event can retry when no receipt exists.
+immediately retried. A later hourly run can retry when no receipt exists.
 The API contract provides no idempotency key: if the scheduler accepts a request
-but its response or the GitHub receipt is lost, a later event can submit a
-duplicate. The existing queue serializes events in one wrapper process; multiple
+but its response or a GitHub receipt is lost, a later hourly run can submit a
+duplicate for heads without receipts. Every receipt write is attempted even if
+another fails, and all writes finish before the queued batch ends.
+The existing queue serializes events and batches in one wrapper process; multiple
 wrapper instances would require scheduler-side idempotency or shared locking.
 Do not delete receipt comments if deduplication is needed.
 

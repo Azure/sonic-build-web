@@ -4,7 +4,7 @@ const mockOctokit = jest.fn();
 const mockSubmitMergeRiskAssessment = jest.fn();
 jest.mock("../action_queue", () => ({ enqueueAction: mockEnqueueAction }));
 jest.mock("../keyvault", () => ({ getGithubToken: mockGetGithubToken }));
-jest.mock("../merge_risk_assessment", () => ({ submit: mockSubmitMergeRiskAssessment }));
+jest.mock("../merge_risk_assessment", () => ({ submitBatch: mockSubmitMergeRiskAssessment }));
 jest.mock("@octokit/rest", () => ({
     Octokit: jest.fn(function (options) { return mockOctokit(options); }),
 }));
@@ -33,6 +33,7 @@ describe("qualified approval coverage", () => {
     let labelEvents;
 
     beforeEach(() => {
+        jest.useFakeTimers("modern");
         jest.clearAllMocks();
         pr = {
             state: "open", number: 42, head: { sha: "head" }, base: { sha: "base", ref: "master" },
@@ -53,6 +54,7 @@ describe("qualified approval coverage", () => {
             requestReviewers: jest.fn().mockResolvedValue({}),
         };
         const issues = {
+            listForRepo: jest.fn(),
             listComments: jest.fn(),
             listEvents: jest.fn(),
             createComment: jest.fn().mockResolvedValue({}),
@@ -78,6 +80,7 @@ describe("qualified approval coverage", () => {
                 }) },
             },
             paginate: jest.fn(async method => {
+                if (method === issues.listForRepo) return [];
                 if (method === pulls.listFiles) return files;
                 if (method === pulls.listReviews) return reviews;
                 if (method === issues.listComments) return comments;
@@ -91,6 +94,10 @@ describe("qualified approval coverage", () => {
         mockEnqueueAction.mockReset();
         mockSubmitMergeRiskAssessment.mockReset();
     });
+    afterEach(() => {
+        jest.clearAllTimers();
+        jest.useRealTimers();
+    });
 
     const sync = () => qualifiedApprovals.sync(octokit, "sonic-net", "sonic-mgmt", 42);
     const body = () => octokit.rest.issues.createComment.mock.calls[0][0].body;
@@ -98,6 +105,117 @@ describe("qualified approval coverage", () => {
         expect(octokit.rest.issues.createComment).not.toHaveBeenCalled();
         expect(octokit.rest.issues.updateComment).not.toHaveBeenCalled();
     };
+    const listCandidates = (...repoNames) => {
+        const paginate = octokit.paginate.getMockImplementation();
+        octokit.paginate.mockImplementation(async (method, params) => {
+            if (method === octokit.rest.issues.listForRepo) {
+                return repoNames.includes(params.repo) ? [{ number: 42, pull_request: {} }] : [];
+            }
+            return paginate(method, params);
+        });
+    };
+
+    test("waits a full hour before queueing and repeats hourly", async () => {
+        const app = { on: jest.fn(), log: { error: jest.fn() } };
+        mockEnqueueAction.mockResolvedValue();
+        qualifiedApprovals.init(app);
+        jest.advanceTimersByTime(60 * 60 * 1000 - 1);
+        expect(mockEnqueueAction).not.toHaveBeenCalled();
+        jest.advanceTimersByTime(1);
+        expect(mockEnqueueAction).toHaveBeenCalledTimes(1);
+        expect(mockEnqueueAction).toHaveBeenCalledWith(
+            expect.any(Function), "hourly merge risk assessment batch", app,
+        );
+        await mockEnqueueAction.mock.results[0].value;
+        jest.advanceTimersByTime(60 * 60 * 1000);
+        expect(mockEnqueueAction).toHaveBeenCalledTimes(2);
+        await mockEnqueueAction.mock.calls[0][0]();
+        expect(mockGetGithubToken).toHaveBeenCalledTimes(1);
+        expect(mockOctokit).toHaveBeenCalledWith({ auth: "bot-token" });
+        expect(mockSubmitMergeRiskAssessment).toHaveBeenCalledWith(octokit, [], app.log);
+    });
+
+    test("does not accumulate hourly jobs while a batch is queued or running", async () => {
+        let finish;
+        mockEnqueueAction.mockReturnValue(new Promise(resolve => { finish = resolve; }));
+        qualifiedApprovals.init({ on: jest.fn(), log: { error: jest.fn() } });
+        jest.advanceTimersByTime(3 * 60 * 60 * 1000);
+        expect(mockEnqueueAction).toHaveBeenCalledTimes(1);
+        finish();
+        await Promise.resolve();
+        jest.advanceTimersByTime(60 * 60 * 1000);
+        expect(mockEnqueueAction).toHaveBeenCalledTimes(2);
+    });
+
+    test("logs queue failures and allows the next hourly attempt", async () => {
+        const app = { on: jest.fn(), log: { error: jest.fn() } };
+        mockEnqueueAction.mockImplementation(() => { throw new Error("Queue full"); });
+        qualifiedApprovals.init(app);
+        jest.advanceTimersByTime(2 * 60 * 60 * 1000);
+        expect(mockEnqueueAction).toHaveBeenCalledTimes(2);
+        expect(app.log.error).toHaveBeenCalledWith(expect.stringContaining("Queue full"));
+    });
+
+    test("rediscovers labeled PRs across repositories and revalidates into one batch", async () => {
+        listCandidates("sonic-mgmt", "sonic-swss");
+        reviews = [review("Alice")];
+        await qualifiedApprovals.submitAssessmentBatch(octokit);
+        expect(octokit.paginate).toHaveBeenCalledWith(octokit.rest.issues.listForRepo, {
+            owner: "sonic-net", repo: "sonic-mgmt", state: "open", labels: "Qualified-approval", per_page: 100,
+        });
+        expect(mockSubmitMergeRiskAssessment).toHaveBeenCalledTimes(1);
+        expect(mockSubmitMergeRiskAssessment).toHaveBeenCalledWith(octokit, [
+            { owner: "sonic-net", repo: "sonic-mgmt", pr },
+            { owner: "sonic-net", repo: "sonic-swss", pr },
+        ], console);
+        noComment();
+        expect(octokit.rest.pulls.requestReviewers).not.toHaveBeenCalled();
+    });
+
+    test.each(["unqualified", "closed", "retargeted"])("excludes %s PRs at batch time", async reason => {
+        listCandidates("sonic-mgmt");
+        pr.labels = [{ name: "Qualified-approval" }];
+        if (reason === "closed") pr.state = "closed";
+        if (reason === "retargeted") pr.base.ref = "release";
+        await qualifiedApprovals.submitAssessmentBatch(octokit);
+        expect(mockSubmitMergeRiskAssessment).toHaveBeenCalledWith(octokit, [], console);
+        if (reason === "unqualified") {
+            expect(octokit.rest.issues.removeLabel).toHaveBeenCalledWith(expect.objectContaining({
+                name: "Qualified-approval",
+            }));
+        }
+        noComment();
+    });
+
+    test("logs revalidation failures and continues with other repositories", async () => {
+        listCandidates("sonic-mgmt", "sonic-swss");
+        reviews = [review("Alice")];
+        octokit.rest.pulls.get.mockRejectedValueOnce(new Error("Cannot read PR"));
+        const log = { info: jest.fn(), error: jest.fn() };
+        await qualifiedApprovals.submitAssessmentBatch(octokit, log);
+        expect(log.error).toHaveBeenCalledWith(expect.stringContaining("sonic-net/sonic-mgmt#42"));
+        expect(log.error).toHaveBeenCalledWith(expect.stringContaining("Cannot read PR"));
+        expect(mockSubmitMergeRiskAssessment).toHaveBeenCalledWith(octokit, [
+            { owner: "sonic-net", repo: "sonic-swss", pr },
+        ], log);
+    });
+
+    test("logs repository discovery failures without silently losing the remaining scan", async () => {
+        listCandidates("sonic-swss");
+        octokit.paginate.mockRejectedValueOnce(new Error("Cannot list repository"));
+        reviews = [review("Alice")];
+        const log = { info: jest.fn(), error: jest.fn() };
+        await qualifiedApprovals.submitAssessmentBatch(octokit, log);
+        expect(log.error).toHaveBeenCalledWith(expect.stringContaining("Cannot list repository"));
+        expect(mockSubmitMergeRiskAssessment).toHaveBeenCalledWith(octokit, [
+            { owner: "sonic-net", repo: "sonic-swss", pr },
+        ], log);
+    });
+
+    test("propagates combined submission failures for action queue logging", async () => {
+        mockSubmitMergeRiskAssessment.mockRejectedValue(new Error("Scheduler unavailable"));
+        await expect(qualifiedApprovals.submitAssessmentBatch(octokit)).rejects.toThrow("Scheduler unavailable");
+    });
 
     test("assignment requests qualified reviewers without reading or writing comments", async () => {
         await qualifiedApprovals.sync(octokit, "sonic-net", "sonic-mgmt", 42, true);
@@ -200,13 +318,11 @@ describe("qualified approval coverage", () => {
         expect(octokit.rest.issues.removeLabel).not.toHaveBeenCalled();
     });
 
-    test("requests assessment for complete coverage even with an existing label", async () => {
+    test("returns an eligible PR without submitting immediately, even with an existing label", async () => {
         pr.labels = [{ name: "Qualified-approval" }];
         reviews = [review("Alice")];
-        await sync();
-        expect(mockSubmitMergeRiskAssessment).toHaveBeenCalledWith(
-            octokit, "sonic-net", "sonic-mgmt", pr, console,
-        );
+        expect(await sync()).toBe(pr);
+        expect(mockSubmitMergeRiskAssessment).not.toHaveBeenCalled();
     });
 
     test("an unmapped administrator qualifies all paths, including both sides of a rename", async () => {
@@ -225,7 +341,7 @@ describe("qualified approval coverage", () => {
             owner: "sonic-net", repo: "sonic-mgmt", username: "yijingyan2",
         });
         expect(octokit.rest.issues.addLabels).toHaveBeenCalledTimes(1);
-        expect(mockSubmitMergeRiskAssessment).toHaveBeenCalledTimes(1);
+        expect(mockSubmitMergeRiskAssessment).not.toHaveBeenCalled();
     });
 
     test.each(["stale", "dismissed", "changes requested", "author", "bot", "requested"])(
@@ -253,7 +369,7 @@ describe("qualified approval coverage", () => {
         await qualifiedApprovals.sync(octokit, "sonic-net", "sonic-mgmt", 42, true);
         expect(octokit.rest.pulls.requestReviewers).not.toHaveBeenCalled();
         expect(octokit.rest.issues.addLabels).toHaveBeenCalledTimes(1);
-        expect(mockSubmitMergeRiskAssessment).toHaveBeenCalledTimes(1);
+        expect(mockSubmitMergeRiskAssessment).not.toHaveBeenCalled();
         noComment();
     });
 
@@ -276,7 +392,7 @@ describe("qualified approval coverage", () => {
         labelEvents = [labelEvent(1, "mssonicbld")];
         await sync();
         expect(pr.labels).toEqual([]);
-        expect(mockSubmitMergeRiskAssessment).toHaveBeenCalledTimes(1);
+        expect(mockSubmitMergeRiskAssessment).not.toHaveBeenCalled();
     });
 
     test("administrator permission lookup failures do not publish or change labels", async () => {
@@ -302,10 +418,10 @@ describe("qualified approval coverage", () => {
         noComment();
     });
 
-    test("requests assessment on silent qualified lifecycle updates", async () => {
+    test("returns eligibility on silent lifecycle updates without submitting", async () => {
         reviews = [review("Alice")];
-        await qualifiedApprovals.sync(octokit, "sonic-net", "sonic-mgmt", 42, false, console, false);
-        expect(mockSubmitMergeRiskAssessment).toHaveBeenCalledTimes(1);
+        expect(await qualifiedApprovals.sync(octokit, "sonic-net", "sonic-mgmt", 42, false, console, false)).toBe(pr);
+        expect(mockSubmitMergeRiskAssessment).not.toHaveBeenCalled();
         noComment();
     });
 
@@ -317,10 +433,11 @@ describe("qualified approval coverage", () => {
         expect(mockSubmitMergeRiskAssessment).not.toHaveBeenCalled();
     });
 
-    test("surfaces assessment failures while preserving the qualified label and summary", async () => {
+    test("scheduler availability does not affect event-time qualification or summaries", async () => {
         reviews = [review("Alice")];
         mockSubmitMergeRiskAssessment.mockRejectedValue(new Error("Cluster unavailable"));
-        await expect(sync()).rejects.toThrow("Cluster unavailable");
+        await expect(sync()).resolves.toBe(pr);
+        expect(mockSubmitMergeRiskAssessment).not.toHaveBeenCalled();
         expect(pr.labels).toContainEqual({ name: "Qualified-approval" });
         expect(body()).toContain("**All changed folders have qualified approval.**");
     });
@@ -941,7 +1058,7 @@ describe("qualified approval coverage", () => {
         reviews = [review("Alice")];
         await qualifiedApprovals.sync(octokit, "sonic-net", "sonic-mgmt", 42, false, console, false);
         expect(octokit.rest.issues.removeLabel).not.toHaveBeenCalled();
-        expect(mockSubmitMergeRiskAssessment).toHaveBeenCalledTimes(1);
+        expect(mockSubmitMergeRiskAssessment).not.toHaveBeenCalled();
         noComment();
     });
 
